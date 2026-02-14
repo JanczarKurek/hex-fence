@@ -1,5 +1,6 @@
-use bevy::prelude::*;
 use bevy::ecs::world::FromWorld;
+use bevy::prelude::*;
+use bevy::audio::{AudioSinkPlayback, Volume};
 
 #[derive(Event, Clone, Copy)]
 pub enum GameSoundEvent {
@@ -7,6 +8,33 @@ pub enum GameSoundEvent {
     SelectPawn,
     MovePawn,
     Win,
+}
+
+#[derive(Resource, Debug, Clone, Copy)]
+pub struct AudioSettings {
+    pub master: f32,
+    pub music: f32,
+    pub effects: f32,
+}
+
+impl Default for AudioSettings {
+    fn default() -> Self {
+        Self {
+            master: 1.0,
+            music: 0.7,
+            effects: 0.8,
+        }
+    }
+}
+
+impl AudioSettings {
+    pub fn music_volume(self) -> Volume {
+        Volume::Linear((self.master * self.music).clamp(0.0, 1.0))
+    }
+
+    pub fn effects_volume(self) -> Volume {
+        Volume::Linear((self.master * self.effects).clamp(0.0, 1.0))
+    }
 }
 
 #[derive(Resource)]
@@ -32,10 +60,18 @@ impl FromWorld for GameAudioAssets {
     }
 }
 
-pub fn start_background_music(mut commands: Commands, audio_assets: Res<GameAudioAssets>) {
+#[derive(Component)]
+pub struct BackgroundMusic;
+
+pub fn start_background_music(
+    mut commands: Commands,
+    audio_assets: Res<GameAudioAssets>,
+    audio_settings: Res<AudioSettings>,
+) {
     commands.spawn((
+        BackgroundMusic,
         AudioPlayer::new(audio_assets.background_music.clone()),
-        PlaybackSettings::LOOP,
+        PlaybackSettings::LOOP.with_volume(audio_settings.music_volume()),
     ));
 }
 
@@ -43,6 +79,7 @@ pub fn play_sound_effects(
     mut commands: Commands,
     mut sound_events: EventReader<GameSoundEvent>,
     audio_assets: Res<GameAudioAssets>,
+    audio_settings: Res<AudioSettings>,
 ) {
     for event in sound_events.read() {
         let source = match event {
@@ -52,6 +89,23 @@ pub fn play_sound_effects(
             GameSoundEvent::Win => audio_assets.win.clone(),
         };
 
-        commands.spawn((AudioPlayer::new(source), PlaybackSettings::DESPAWN));
+        commands.spawn((
+            AudioPlayer::new(source),
+            PlaybackSettings::DESPAWN.with_volume(audio_settings.effects_volume()),
+        ));
+    }
+}
+
+pub fn update_background_music_volume(
+    audio_settings: Res<AudioSettings>,
+    mut music_sinks: Query<&mut AudioSink, With<BackgroundMusic>>,
+) {
+    if !audio_settings.is_changed() {
+        return;
+    }
+
+    let volume = audio_settings.music_volume();
+    for mut sink in &mut music_sinks {
+        sink.set_volume(volume);
     }
 }
