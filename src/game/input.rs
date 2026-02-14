@@ -4,6 +4,7 @@ use bevy::window::PrimaryWindow;
 use crate::camera::MainCamera;
 use crate::hex_grid::AxialCoord;
 
+use super::audio::GameSoundEvent;
 use super::components::Pawn;
 use super::selection::PawnSelection;
 use super::state::TurnState;
@@ -15,6 +16,7 @@ pub fn move_current_pawn_on_click(
     mut turn_state: ResMut<TurnState>,
     mut selection: ResMut<PawnSelection>,
     mut pawn_query: Query<(&Pawn, &mut Transform)>,
+    mut sound_events: EventWriter<GameSoundEvent>,
 ) {
     if !mouse_buttons.just_pressed(MouseButton::Left) || turn_state.winner.is_some() {
         return;
@@ -38,12 +40,16 @@ pub fn move_current_pawn_on_click(
     if !target.is_inside_board() {
         return;
     }
+    sound_events.write(GameSoundEvent::Click);
 
     let current = turn_state.current_player;
     let current_pos = turn_state.pawn_positions[current];
 
     if target == current_pos {
         selection.current_selected = !selection.current_selected;
+        if selection.current_selected {
+            sound_events.write(GameSoundEvent::SelectPawn);
+        }
         return;
     }
 
@@ -58,6 +64,7 @@ pub fn move_current_pawn_on_click(
     }
 
     turn_state.pawn_positions[current] = target;
+    sound_events.write(GameSoundEvent::MovePawn);
 
     for (pawn, mut transform) in &mut pawn_query {
         if pawn.player_index == current {
@@ -69,6 +76,7 @@ pub fn move_current_pawn_on_click(
 
     if target.is_on_side(turn_state.players[current].goal_side) {
         turn_state.winner = Some(current);
+        sound_events.write(GameSoundEvent::Win);
         selection.current_selected = false;
         return;
     }
