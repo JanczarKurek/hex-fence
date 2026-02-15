@@ -2,7 +2,7 @@ use bevy::app::AppExit;
 use bevy::prelude::*;
 use bevy::ui::RelativeCursorPosition;
 
-use crate::game::audio::AudioSettings;
+use crate::settings::{self, AppSettings};
 
 pub struct UiPlugin;
 
@@ -86,20 +86,20 @@ enum SoundSliderKind {
 }
 
 impl SoundSliderKind {
-    fn value(self, settings: &AudioSettings) -> f32 {
+    fn value(self, settings: &AppSettings) -> f32 {
         match self {
-            Self::Master => settings.master,
-            Self::Music => settings.music,
-            Self::Effects => settings.effects,
+            Self::Master => settings.audio.master,
+            Self::Music => settings.audio.music,
+            Self::Effects => settings.audio.effects,
         }
     }
 
-    fn set_value(self, settings: &mut AudioSettings, value: f32) {
+    fn set_value(self, settings: &mut AppSettings, value: f32) {
         let value = value.clamp(0.0, 1.0);
         match self {
-            Self::Master => settings.master = value,
-            Self::Music => settings.music = value,
-            Self::Effects => settings.effects = value,
+            Self::Master => settings.audio.master = value,
+            Self::Music => settings.audio.music = value,
+            Self::Effects => settings.audio.effects = value,
         }
     }
 }
@@ -115,7 +115,7 @@ const SLIDER_FILL: Color = Color::srgb(0.25, 0.68, 0.44);
 
 fn setup_ui(
     mut commands: Commands,
-    audio_settings: Res<AudioSettings>,
+    app_settings: Res<AppSettings>,
     settings_ui: Res<SettingsUiState>,
 ) {
     commands
@@ -271,19 +271,19 @@ fn setup_ui(
                                 content,
                                 "Master Volume",
                                 SoundSliderKind::Master,
-                                audio_settings.master,
+                                app_settings.audio.master,
                             );
                             spawn_sound_slider_row(
                                 content,
                                 "Music Volume",
                                 SoundSliderKind::Music,
-                                audio_settings.music,
+                                app_settings.audio.music,
                             );
                             spawn_sound_slider_row(
                                 content,
                                 "Effects Volume",
                                 SoundSliderKind::Effects,
-                                audio_settings.effects,
+                                app_settings.audio.effects,
                             );
                         });
                 });
@@ -387,11 +387,16 @@ fn handle_settings_toggle_button(
         (Changed<Interaction>, With<SettingsToggleButton>),
     >,
     mut settings_ui: ResMut<SettingsUiState>,
+    app_settings: Res<AppSettings>,
 ) {
     for (interaction, mut color) in &mut interaction_query {
         match *interaction {
             Interaction::Pressed => {
+                let was_open = settings_ui.open;
                 settings_ui.open = !settings_ui.open;
+                if was_open && !settings_ui.open {
+                    let _ = settings::save_settings_to_disk(*app_settings);
+                }
                 *color = PRESSED_BUTTON.into();
             }
             Interaction::Hovered => {
@@ -454,7 +459,7 @@ fn sync_settings_popup_visibility(
 }
 
 fn handle_sound_slider_input(
-    mut audio_settings: ResMut<AudioSettings>,
+    mut app_settings: ResMut<AppSettings>,
     track_query: Query<(&Interaction, &RelativeCursorPosition, &SoundSliderTrack), With<Button>>,
 ) {
     for (interaction, cursor_pos, slider) in &track_query {
@@ -466,25 +471,25 @@ fn handle_sound_slider_input(
             continue;
         };
 
-        slider.kind.set_value(&mut audio_settings, normalized.x);
+        slider.kind.set_value(&mut app_settings, normalized.x);
     }
 }
 
 fn sync_sound_slider_visuals(
-    audio_settings: Res<AudioSettings>,
+    app_settings: Res<AppSettings>,
     mut fill_query: Query<(&SoundSliderFill, &mut Node)>,
     mut value_text_query: Query<(&SoundSliderValueText, &mut Text)>,
 ) {
-    if !audio_settings.is_changed() {
+    if !app_settings.is_changed() {
         return;
     }
 
     for (fill, mut node) in &mut fill_query {
-        node.width = Val::Percent(fill.kind.value(&audio_settings) * 100.0);
+        node.width = Val::Percent(fill.kind.value(&app_settings) * 100.0);
     }
 
     for (value_text, mut text) in &mut value_text_query {
-        let value = (value_text.kind.value(&audio_settings) * 100.0).round() as i32;
+        let value = (value_text.kind.value(&app_settings) * 100.0).round() as i32;
         *text = Text::new(format!("{:>3}%", value));
     }
 }

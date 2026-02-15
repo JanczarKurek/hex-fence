@@ -19,7 +19,6 @@ impl Plugin for GamePlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(TurnState::new_three_players())
             .insert_resource(PawnSelection::default())
-            .init_resource::<audio::AudioSettings>()
             .init_resource::<audio::GameAudioAssets>()
             .add_event::<audio::GameSoundEvent>()
             .add_systems(
