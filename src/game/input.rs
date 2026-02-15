@@ -6,18 +6,35 @@ use crate::hex_grid::AxialCoord;
 
 use super::audio::GameSoundEvent;
 use super::components::Pawn;
+use super::fence::{self, FencePlacementState};
 use super::selection::PawnSelection;
 use super::state::TurnState;
 
 pub fn move_current_pawn_on_click(
+    keys: Res<ButtonInput<KeyCode>>,
     mouse_buttons: Res<ButtonInput<MouseButton>>,
     windows: Query<&Window, With<PrimaryWindow>>,
     camera_query: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
     mut turn_state: ResMut<TurnState>,
     mut selection: ResMut<PawnSelection>,
+    mut fence_placement: ResMut<FencePlacementState>,
     mut pawn_query: Query<(&Pawn, &mut Transform)>,
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
     mut sound_events: EventWriter<GameSoundEvent>,
 ) {
+    if keys.just_pressed(KeyCode::KeyF) {
+        fence_placement.enabled = !fence_placement.enabled;
+        selection.current_selected = false;
+    }
+    if keys.just_pressed(KeyCode::KeyQ) {
+        fence_placement.shape = fence_placement.shape.next();
+    }
+    if keys.just_pressed(KeyCode::KeyE) {
+        fence_placement.orientation = (fence_placement.orientation + 1) % 6;
+    }
+
     if !mouse_buttons.just_pressed(MouseButton::Left) || turn_state.winner.is_some() {
         return;
     }
@@ -41,6 +58,21 @@ pub fn move_current_pawn_on_click(
         return;
     }
     sound_events.write(GameSoundEvent::Click);
+
+    if fence_placement.enabled {
+        let edges = fence::fence_edges(target, fence_placement.shape, fence_placement.orientation);
+        if !turn_state.can_place_fence(&edges) {
+            return;
+        }
+
+        let current = turn_state.current_player;
+        let color = turn_state.players[current].pawn_color;
+        fence::spawn_fence_segments(&mut commands, &mut meshes, &mut materials, &edges, color);
+        turn_state.place_fence(&edges);
+        selection.current_selected = false;
+        sound_events.write(GameSoundEvent::MovePawn);
+        return;
+    }
 
     let current = turn_state.current_player;
     let current_pos = turn_state.pawn_positions[current];

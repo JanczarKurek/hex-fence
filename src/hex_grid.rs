@@ -30,6 +30,14 @@ impl AxialCoord {
         ]
     }
 
+    pub fn neighbor_in_direction(self, direction: usize) -> Self {
+        self.neighbors()[direction % 6]
+    }
+
+    pub fn direction_to(self, other: Self) -> Option<usize> {
+        self.neighbors().iter().position(|neighbor| *neighbor == other)
+    }
+
     pub fn to_world(self) -> Vec2 {
         let q = self.q as f32;
         let r = self.r as f32;
