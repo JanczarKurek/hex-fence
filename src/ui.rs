@@ -2,6 +2,7 @@ use bevy::app::AppExit;
 use bevy::prelude::*;
 use bevy::ui::RelativeCursorPosition;
 
+use crate::app_state::{AppPhase, GameConfig};
 use crate::settings::{self, AppSettings};
 
 pub struct UiPlugin;
@@ -9,7 +10,19 @@ pub struct UiPlugin;
 impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(SettingsUiState::default())
-            .add_systems(Startup, setup_ui)
+            .insert_resource(MenuSelection::default())
+            .add_systems(OnEnter(AppPhase::Menu), setup_start_menu)
+            .add_systems(OnExit(AppPhase::Menu), cleanup_start_menu)
+            .add_systems(
+                Update,
+                (
+                    handle_menu_option_buttons,
+                    handle_start_game_button,
+                    sync_menu_button_visuals,
+                )
+                    .run_if(in_state(AppPhase::Menu)),
+            )
+            .add_systems(OnEnter(AppPhase::InGame), setup_in_game_ui)
             .add_systems(
                 Update,
                 (
@@ -19,9 +32,41 @@ impl Plugin for UiPlugin {
                     handle_sound_slider_input,
                     sync_sound_slider_visuals,
                     sync_settings_popup_visibility,
-                ),
+                )
+                    .run_if(in_state(AppPhase::InGame)),
             );
     }
+}
+
+#[derive(Resource)]
+struct MenuSelection {
+    board_radius: i32,
+    player_count: usize,
+}
+
+impl Default for MenuSelection {
+    fn default() -> Self {
+        Self {
+            board_radius: 4,
+            player_count: 3,
+        }
+    }
+}
+
+#[derive(Component)]
+struct StartMenuRoot;
+
+#[derive(Component)]
+struct StartGameButton;
+
+#[derive(Component)]
+struct BoardSizeButton {
+    radius: i32,
+}
+
+#[derive(Component)]
+struct PlayerCountButton {
+    player_count: usize,
 }
 
 #[derive(Component)]
@@ -107,13 +152,257 @@ impl SoundSliderKind {
 const NORMAL_BUTTON: Color = Color::srgb(0.15, 0.15, 0.15);
 const HOVERED_BUTTON: Color = Color::srgb(0.25, 0.25, 0.25);
 const PRESSED_BUTTON: Color = Color::srgb(0.8, 0.2, 0.2);
+const MENU_PANEL_BG: Color = Color::srgba(0.06, 0.07, 0.08, 0.95);
+const MENU_SELECTED: Color = Color::srgb(0.20, 0.58, 0.36);
+const MENU_START: Color = Color::srgb(0.23, 0.62, 0.40);
 const PANEL_BG: Color = Color::srgba(0.08, 0.08, 0.1, 0.95);
 const TAB_ACTIVE: Color = Color::srgb(0.22, 0.33, 0.44);
 const TAB_INACTIVE: Color = Color::srgb(0.13, 0.13, 0.15);
 const SLIDER_TRACK: Color = Color::srgb(0.18, 0.18, 0.2);
 const SLIDER_FILL: Color = Color::srgb(0.25, 0.68, 0.44);
 
-fn setup_ui(
+fn setup_start_menu(mut commands: Commands, game_config: Res<GameConfig>, mut menu: ResMut<MenuSelection>) {
+    menu.board_radius = game_config.board_radius;
+    menu.player_count = game_config.player_count;
+
+    commands
+        .spawn((
+            StartMenuRoot,
+            Node {
+                width: Val::Percent(100.0),
+                height: Val::Percent(100.0),
+                justify_content: JustifyContent::Center,
+                align_items: AlignItems::Center,
+                ..default()
+            },
+        ))
+        .with_children(|root| {
+            root.spawn((
+                Node {
+                    width: Val::Px(480.0),
+                    max_width: Val::Percent(92.0),
+                    padding: UiRect::all(Val::Px(24.0)),
+                    border: UiRect::all(Val::Px(2.0)),
+                    row_gap: Val::Px(18.0),
+                    flex_direction: FlexDirection::Column,
+                    ..default()
+                },
+                BorderColor(Color::srgb(0.22, 0.22, 0.25)),
+                BackgroundColor(MENU_PANEL_BG),
+            ))
+            .with_children(|panel| {
+                panel.spawn((
+                    Text::new("Hex Board Setup"),
+                    TextFont::from_font_size(34.0),
+                    TextColor(Color::WHITE),
+                ));
+
+                panel.spawn((
+                    Text::new("Board Size"),
+                    TextFont::from_font_size(20.0),
+                    TextColor(Color::srgb(0.9, 0.9, 0.9)),
+                ));
+                spawn_choice_row(panel, &[3, 4, 5, 6], menu.board_radius);
+
+                panel.spawn((
+                    Text::new("Players"),
+                    TextFont::from_font_size(20.0),
+                    TextColor(Color::srgb(0.9, 0.9, 0.9)),
+                ));
+                spawn_player_row(panel, &[2, 3, 6], menu.player_count);
+
+                panel
+                    .spawn((
+                        Button,
+                        StartGameButton,
+                        Node {
+                            width: Val::Percent(100.0),
+                            height: Val::Px(48.0),
+                            justify_content: JustifyContent::Center,
+                            align_items: AlignItems::Center,
+                            border: UiRect::all(Val::Px(2.0)),
+                            margin: UiRect::top(Val::Px(8.0)),
+                            ..default()
+                        },
+                        BorderColor(Color::BLACK),
+                        BackgroundColor(MENU_START),
+                    ))
+                    .with_children(|button| {
+                        button.spawn((
+                            Text::new("Start Game"),
+                            TextFont::from_font_size(24.0),
+                            TextColor(Color::WHITE),
+                        ));
+                    });
+            });
+        });
+}
+
+fn spawn_choice_row(parent: &mut ChildSpawnerCommands, choices: &[i32], selected: i32) {
+    parent
+        .spawn(Node {
+            width: Val::Percent(100.0),
+            column_gap: Val::Px(8.0),
+            flex_direction: FlexDirection::Row,
+            ..default()
+        })
+        .with_children(|row| {
+            for choice in choices {
+                row.spawn((
+                    Button,
+                    BoardSizeButton { radius: *choice },
+                    Node {
+                        width: Val::Px(72.0),
+                        height: Val::Px(38.0),
+                        justify_content: JustifyContent::Center,
+                        align_items: AlignItems::Center,
+                        border: UiRect::all(Val::Px(1.0)),
+                        ..default()
+                    },
+                    BorderColor(Color::BLACK),
+                    BackgroundColor(if *choice == selected { MENU_SELECTED } else { NORMAL_BUTTON }),
+                ))
+                .with_children(|button| {
+                    button.spawn((
+                        Text::new(choice.to_string()),
+                        TextFont::from_font_size(18.0),
+                        TextColor(Color::WHITE),
+                    ));
+                });
+            }
+        });
+}
+
+fn spawn_player_row(parent: &mut ChildSpawnerCommands, choices: &[usize], selected: usize) {
+    parent
+        .spawn(Node {
+            width: Val::Percent(100.0),
+            column_gap: Val::Px(8.0),
+            flex_direction: FlexDirection::Row,
+            ..default()
+        })
+        .with_children(|row| {
+            for choice in choices {
+                row.spawn((
+                    Button,
+                    PlayerCountButton {
+                        player_count: *choice,
+                    },
+                    Node {
+                        width: Val::Px(72.0),
+                        height: Val::Px(38.0),
+                        justify_content: JustifyContent::Center,
+                        align_items: AlignItems::Center,
+                        border: UiRect::all(Val::Px(1.0)),
+                        ..default()
+                    },
+                    BorderColor(Color::BLACK),
+                    BackgroundColor(if *choice == selected { MENU_SELECTED } else { NORMAL_BUTTON }),
+                ))
+                .with_children(|button| {
+                    button.spawn((
+                        Text::new(choice.to_string()),
+                        TextFont::from_font_size(18.0),
+                        TextColor(Color::WHITE),
+                    ));
+                });
+            }
+        });
+}
+
+fn cleanup_start_menu(mut commands: Commands, roots: Query<Entity, With<StartMenuRoot>>) {
+    for entity in &roots {
+        commands.entity(entity).despawn();
+    }
+}
+
+fn handle_menu_option_buttons(
+    mut menu: ResMut<MenuSelection>,
+    mut board_buttons: Query<
+        (&Interaction, &BoardSizeButton),
+        (
+            Changed<Interaction>,
+            With<Button>,
+            With<BoardSizeButton>,
+            Without<PlayerCountButton>,
+        ),
+    >,
+    mut player_buttons: Query<
+        (&Interaction, &PlayerCountButton),
+        (
+            Changed<Interaction>,
+            With<Button>,
+            With<PlayerCountButton>,
+            Without<BoardSizeButton>,
+        ),
+    >,
+) {
+    for (interaction, button) in &mut board_buttons {
+        if *interaction == Interaction::Pressed {
+            menu.board_radius = button.radius;
+        }
+    }
+
+    for (interaction, button) in &mut player_buttons {
+        if *interaction == Interaction::Pressed {
+            menu.player_count = button.player_count;
+        }
+    }
+}
+
+fn sync_menu_button_visuals(
+    menu: Res<MenuSelection>,
+    mut board_buttons: Query<
+        (&Interaction, &BoardSizeButton, &mut BackgroundColor),
+        (With<Button>, With<BoardSizeButton>, Without<PlayerCountButton>),
+    >,
+    mut player_buttons: Query<
+        (&Interaction, &PlayerCountButton, &mut BackgroundColor),
+        (With<Button>, With<PlayerCountButton>, Without<BoardSizeButton>),
+    >,
+) {
+    for (interaction, button, mut color) in &mut board_buttons {
+        *color = if button.radius == menu.board_radius {
+            MENU_SELECTED.into()
+        } else if *interaction == Interaction::Hovered {
+            HOVERED_BUTTON.into()
+        } else {
+            NORMAL_BUTTON.into()
+        };
+    }
+
+    for (interaction, button, mut color) in &mut player_buttons {
+        *color = if button.player_count == menu.player_count {
+            MENU_SELECTED.into()
+        } else if *interaction == Interaction::Hovered {
+            HOVERED_BUTTON.into()
+        } else {
+            NORMAL_BUTTON.into()
+        };
+    }
+}
+
+fn handle_start_game_button(
+    menu: Res<MenuSelection>,
+    mut game_config: ResMut<GameConfig>,
+    mut interactions: Query<(&Interaction, &mut BackgroundColor), (Changed<Interaction>, With<StartGameButton>)>,
+    mut next_phase: ResMut<NextState<AppPhase>>,
+) {
+    for (interaction, mut color) in &mut interactions {
+        match *interaction {
+            Interaction::Pressed => {
+                game_config.board_radius = menu.board_radius;
+                game_config.player_count = menu.player_count;
+                next_phase.set(AppPhase::InGame);
+                *color = PRESSED_BUTTON.into();
+            }
+            Interaction::Hovered => *color = HOVERED_BUTTON.into(),
+            Interaction::None => *color = MENU_START.into(),
+        }
+    }
+}
+
+fn setup_in_game_ui(
     mut commands: Commands,
     app_settings: Res<AppSettings>,
     settings_ui: Res<SettingsUiState>,
@@ -195,7 +484,6 @@ fn setup_ui(
                         position_type: PositionType::Absolute,
                         left: Val::Percent(50.0),
                         top: Val::Percent(50.0),
-                        margin: UiRect::all(Val::ZERO),
                         justify_content: JustifyContent::FlexStart,
                         align_items: AlignItems::Stretch,
                         flex_direction: FlexDirection::Column,
@@ -371,12 +659,8 @@ fn handle_exit_button(
                 *color = PRESSED_BUTTON.into();
                 exit_events.write(AppExit::Success);
             }
-            Interaction::Hovered => {
-                *color = HOVERED_BUTTON.into();
-            }
-            Interaction::None => {
-                *color = NORMAL_BUTTON.into();
-            }
+            Interaction::Hovered => *color = HOVERED_BUTTON.into(),
+            Interaction::None => *color = NORMAL_BUTTON.into(),
         }
     }
 }
@@ -399,12 +683,8 @@ fn handle_settings_toggle_button(
                 }
                 *color = PRESSED_BUTTON.into();
             }
-            Interaction::Hovered => {
-                *color = HOVERED_BUTTON.into();
-            }
-            Interaction::None => {
-                *color = NORMAL_BUTTON.into();
-            }
+            Interaction::Hovered => *color = HOVERED_BUTTON.into(),
+            Interaction::None => *color = NORMAL_BUTTON.into(),
         }
     }
 }

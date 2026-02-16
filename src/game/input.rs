@@ -54,7 +54,7 @@ pub fn move_current_pawn_on_click(
     };
 
     let target = AxialCoord::from_world(world_pos);
-    if !target.is_inside_board() {
+    if !target.is_inside_board(turn_state.board_radius) {
         return;
     }
     sound_events.write(GameSoundEvent::Click);
@@ -106,7 +106,7 @@ pub fn move_current_pawn_on_click(
         }
     }
 
-    if target.is_on_side(turn_state.players[current].goal_side) {
+    if target.is_on_side(turn_state.players[current].goal_side, turn_state.board_radius) {
         turn_state.winner = Some(current);
         sound_events.write(GameSoundEvent::Win);
         selection.current_selected = false;

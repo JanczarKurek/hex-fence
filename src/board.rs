@@ -3,13 +3,14 @@ use bevy::prelude::*;
 use bevy::render::mesh::Mesh2d;
 use bevy::sprite::MeshMaterial2d;
 
-use crate::hex_grid::{AxialCoord, BOARD_RADIUS, TILE_RADIUS};
+use crate::app_state::{AppPhase, GameConfig};
+use crate::hex_grid::{AxialCoord, TILE_RADIUS};
 
 pub struct BoardPlugin;
 
 impl Plugin for BoardPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, spawn_board);
+        app.add_systems(OnEnter(AppPhase::InGame), spawn_board);
     }
 }
 
@@ -17,13 +18,15 @@ fn spawn_board(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
+    game_config: Res<GameConfig>,
 ) {
     let tile_mesh = meshes.add(RegularPolygon::new(TILE_RADIUS, 6));
+    let board_radius = game_config.board_radius;
 
-    for q in -BOARD_RADIUS..=BOARD_RADIUS {
-        for r in -BOARD_RADIUS..=BOARD_RADIUS {
+    for q in -board_radius..=board_radius {
+        for r in -board_radius..=board_radius {
             let coord = AxialCoord::new(q, r);
-            if !coord.is_inside_board() {
+            if !coord.is_inside_board(board_radius) {
                 continue;
             }
 

@@ -10,6 +10,7 @@ mod state;
 mod ui;
 
 use bevy::prelude::*;
+use crate::app_state::AppPhase;
 
 use fence::FencePlacementState;
 use selection::PawnSelection;
@@ -19,18 +20,22 @@ pub struct GamePlugin;
 
 impl Plugin for GamePlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(TurnState::new_three_players())
+        app.insert_resource(TurnState::default())
             .insert_resource(PawnSelection::default())
             .insert_resource(FencePlacementState::default())
             .init_resource::<audio::GameAudioAssets>()
             .add_event::<audio::GameSoundEvent>()
+            .add_systems(Startup, audio::start_background_music)
             .add_systems(
-                Startup,
+                OnEnter(AppPhase::InGame),
                 (
-                    audio::start_background_music,
+                    state::reset_turn_state_from_config,
+                    selection::reset_selection,
+                    fence::reset_fence_placement,
                     spawn::spawn_pawns,
                     ui::setup_turn_indicator,
-                ),
+                )
+                    .chain(),
             )
             .add_systems(
                 Update,
@@ -41,7 +46,8 @@ impl Plugin for GamePlugin {
                     audio::update_background_music_volume,
                     highlight::update_move_highlights,
                     ui::update_turn_indicator,
-                ),
+                )
+                    .run_if(in_state(AppPhase::InGame)),
             );
     }
 }

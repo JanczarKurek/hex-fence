@@ -1,9 +1,10 @@
 use bevy::prelude::*;
 use std::collections::{HashSet, VecDeque};
 
+use crate::app_state::GameConfig;
 use crate::hex_grid::AxialCoord;
 
-use super::player::{PlayerDef, three_players};
+use super::player::{PlayerDef, fences_per_player, players_for_count};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct EdgeKey {
@@ -23,37 +24,43 @@ impl EdgeKey {
 
 #[derive(Resource)]
 pub struct TurnState {
-    pub players: [PlayerDef; 3],
-    pub pawn_positions: [AxialCoord; 3],
+    pub board_radius: i32,
+    pub players: Vec<PlayerDef>,
+    pub pawn_positions: Vec<AxialCoord>,
     pub current_player: usize,
     pub winner: Option<usize>,
-    pub fences_left: [usize; 3],
+    pub fences_left: Vec<usize>,
     pub blocked_edges: HashSet<EdgeKey>,
 }
 
+impl Default for TurnState {
+    fn default() -> Self {
+        Self::new(3, 4)
+    }
+}
+
 impl TurnState {
-    pub fn new_three_players() -> Self {
-        let players = three_players();
-        let pawn_positions = [
-            players[0].start_coord(),
-            players[1].start_coord(),
-            players[2].start_coord(),
-        ];
+    pub fn new(player_count: usize, board_radius: i32) -> Self {
+        let players = players_for_count(player_count);
+        let pawn_positions = players
+            .iter()
+            .map(|player| player.start_coord(board_radius))
+            .collect::<Vec<_>>();
+        let fences_left = vec![fences_per_player(players.len()); players.len()];
 
         Self {
+            board_radius,
             players,
             pawn_positions,
             current_player: 0,
             winner: None,
-            fences_left: [10; 3],
+            fences_left,
             blocked_edges: HashSet::new(),
         }
     }
 
     pub fn is_occupied(&self, coord: AxialCoord) -> bool {
-        self.pawn_positions
-            .into_iter()
-            .any(|current| current == coord)
+        self.pawn_positions.iter().any(|current| *current == coord)
     }
 
     pub fn advance_turn(&mut self) {
@@ -61,7 +68,7 @@ impl TurnState {
     }
 
     fn can_step(&self, from: AxialCoord, to: AxialCoord) -> bool {
-        if !to.is_inside_board() {
+        if !to.is_inside_board(self.board_radius) {
             return false;
         }
 
@@ -132,7 +139,7 @@ impl TurnState {
         }
 
         for edge in edges {
-            if !edge.a.is_inside_board() || !edge.b.is_inside_board() {
+            if !edge.a.is_inside_board(self.board_radius) || !edge.b.is_inside_board(self.board_radius) {
                 return false;
             }
 
@@ -151,7 +158,12 @@ impl TurnState {
         }
 
         for (index, player) in self.players.iter().enumerate() {
-            if !has_path_to_goal(self.pawn_positions[index], player.goal_side, &future_blocked) {
+            if !has_path_to_goal(
+                self.pawn_positions[index],
+                player.goal_side,
+                self.board_radius,
+                &future_blocked,
+            ) {
                 return false;
             }
         }
@@ -168,17 +180,26 @@ impl TurnState {
     }
 }
 
-fn has_path_to_goal(start: AxialCoord, goal_side: usize, blocked_edges: &HashSet<EdgeKey>) -> bool {
+pub fn reset_turn_state_from_config(game_config: Res<GameConfig>, mut turn_state: ResMut<TurnState>) {
+    *turn_state = TurnState::new(game_config.player_count, game_config.board_radius);
+}
+
+fn has_path_to_goal(
+    start: AxialCoord,
+    goal_side: usize,
+    board_radius: i32,
+    blocked_edges: &HashSet<EdgeKey>,
+) -> bool {
     let mut visited = HashSet::from([start]);
     let mut queue = VecDeque::from([start]);
 
     while let Some(current) = queue.pop_front() {
-        if current.is_on_side(goal_side) {
+        if current.is_on_side(goal_side, board_radius) {
             return true;
         }
 
         for neighbor in current.neighbors() {
-            if !neighbor.is_inside_board() {
+            if !neighbor.is_inside_board(board_radius) {
                 continue;
             }
 

@@ -27,6 +27,10 @@ impl Default for FencePlacementState {
     }
 }
 
+pub fn reset_fence_placement(mut placement: ResMut<FencePlacementState>) {
+    *placement = FencePlacementState::default();
+}
+
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub enum FenceShape {
     S,
@@ -140,7 +144,7 @@ pub fn update_fence_preview(
     };
 
     let anchor = AxialCoord::from_world(world_pos);
-    if !anchor.is_inside_board() {
+    if !anchor.is_inside_board(turn_state.board_radius) {
         return;
     }
 

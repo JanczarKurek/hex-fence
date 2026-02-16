@@ -1,3 +1,4 @@
+mod app_state;
 mod board;
 mod camera;
 mod game;
@@ -6,9 +7,11 @@ mod settings;
 mod ui;
 
 use bevy::prelude::*;
+use app_state::{AppPhase, GameConfig};
 
 fn main() {
     App::new()
+        .insert_resource(GameConfig::default())
         .insert_resource(settings::load_settings_from_disk().unwrap_or_default())
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
@@ -18,6 +21,7 @@ fn main() {
             }),
             ..default()
         }))
+        .init_state::<AppPhase>()
         .add_plugins((
             board::BoardPlugin,
             camera::CameraPlugin,

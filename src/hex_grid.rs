@@ -1,6 +1,5 @@
 use bevy::prelude::*;
 
-pub const BOARD_RADIUS: i32 = 4;
 pub const TILE_RADIUS: f32 = 30.0;
 
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -14,9 +13,9 @@ impl AxialCoord {
         Self { q, r }
     }
 
-    pub fn is_inside_board(self) -> bool {
+    pub fn is_inside_board(self, board_radius: i32) -> bool {
         let s = -self.q - self.r;
-        self.q.abs() <= BOARD_RADIUS && self.r.abs() <= BOARD_RADIUS && s.abs() <= BOARD_RADIUS
+        self.q.abs() <= board_radius && self.r.abs() <= board_radius && s.abs() <= board_radius
     }
 
     pub fn neighbors(self) -> [Self; 6] {
@@ -52,26 +51,26 @@ impl AxialCoord {
         axial_round(q, r)
     }
 
-    pub fn is_on_side(self, side: usize) -> bool {
+    pub fn is_on_side(self, side: usize, board_radius: i32) -> bool {
         match side % 6 {
-            0 => self.q == BOARD_RADIUS,
-            1 => self.r == BOARD_RADIUS,
-            2 => self.q + self.r == -BOARD_RADIUS,
-            3 => self.q == -BOARD_RADIUS,
-            4 => self.r == -BOARD_RADIUS,
-            _ => self.q + self.r == BOARD_RADIUS,
+            0 => self.q == board_radius,
+            1 => self.r == board_radius,
+            2 => self.q + self.r == -board_radius,
+            3 => self.q == -board_radius,
+            4 => self.r == -board_radius,
+            _ => self.q + self.r == board_radius,
         }
     }
 }
 
-pub fn side_midpoint(side: usize) -> AxialCoord {
-    let mid = BOARD_RADIUS / 2;
+pub fn side_midpoint(side: usize, board_radius: i32) -> AxialCoord {
+    let mid = board_radius / 2;
     match side % 6 {
-        0 => AxialCoord::new(BOARD_RADIUS, -mid),
-        1 => AxialCoord::new(-mid, BOARD_RADIUS),
+        0 => AxialCoord::new(board_radius, -mid),
+        1 => AxialCoord::new(-mid, board_radius),
         2 => AxialCoord::new(-mid, -mid),
-        3 => AxialCoord::new(-BOARD_RADIUS, mid),
-        4 => AxialCoord::new(mid, -BOARD_RADIUS),
+        3 => AxialCoord::new(-board_radius, mid),
+        4 => AxialCoord::new(mid, -board_radius),
         _ => AxialCoord::new(mid, mid),
     }
 }
