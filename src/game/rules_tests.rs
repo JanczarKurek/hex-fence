@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use crate::hex_grid::AxialCoord;
 
-use super::fence::{fence_edges, FenceShape};
+use super::fence::{FenceShape, fence_edges};
 use super::state::{ActionError, EdgeKey, TurnState};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -39,7 +39,10 @@ struct SequenceError {
     error: ActionError,
 }
 
-fn run_sequence(mut state: TurnState, actions: &[TestAction]) -> Result<GameSnapshot, SequenceError> {
+fn run_sequence(
+    mut state: TurnState,
+    actions: &[TestAction],
+) -> Result<GameSnapshot, SequenceError> {
     for (step, action) in actions.iter().copied().enumerate() {
         let result = match action {
             TestAction::Move(target) => state.try_move_current_pawn(target).map(|_| ()),

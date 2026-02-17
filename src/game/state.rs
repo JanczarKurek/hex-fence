@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use serde::{Deserialize, Serialize};
 use std::collections::{HashSet, VecDeque};
 
 use crate::app_state::GameConfig;
@@ -6,7 +7,7 @@ use crate::hex_grid::AxialCoord;
 
 use super::player::{PlayerDef, fences_per_player, players_for_count};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct EdgeKey {
     pub a: AxialCoord,
     pub b: AxialCoord,
@@ -44,6 +45,25 @@ pub enum ActionError {
 pub enum ActionOutcome {
     TurnAdvanced,
     Won(usize),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum GameAction {
+    Move { target: AxialCoord },
+    PlaceFence { edges: [EdgeKey; 3] },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AppliedAction {
+    Moved {
+        player: usize,
+        target: AxialCoord,
+        outcome: ActionOutcome,
+    },
+    FencePlaced {
+        player: usize,
+        edges: [EdgeKey; 3],
+    },
 }
 
 impl Default for TurnState {
@@ -121,7 +141,9 @@ impl TurnState {
                     occupied
                         .neighbors()
                         .into_iter()
-                        .filter(|candidate| *candidate != from && self.can_step(occupied, *candidate))
+                        .filter(|candidate| {
+                            *candidate != from && self.can_step(occupied, *candidate)
+                        })
                         .collect()
                 };
 
@@ -152,7 +174,9 @@ impl TurnState {
         }
 
         for edge in edges {
-            if !edge.a.is_inside_board(self.board_radius) || !edge.b.is_inside_board(self.board_radius) {
+            if !edge.a.is_inside_board(self.board_radius)
+                || !edge.b.is_inside_board(self.board_radius)
+            {
                 return false;
             }
 
@@ -205,7 +229,10 @@ impl TurnState {
         Ok(())
     }
 
-    pub fn try_move_current_pawn(&mut self, target: AxialCoord) -> Result<ActionOutcome, ActionError> {
+    pub fn try_move_current_pawn(
+        &mut self,
+        target: AxialCoord,
+    ) -> Result<ActionOutcome, ActionError> {
         if self.winner.is_some() {
             return Err(ActionError::GameFinished);
         }
@@ -234,9 +261,31 @@ impl TurnState {
         self.advance_turn();
         Ok(ActionOutcome::TurnAdvanced)
     }
+
+    pub fn try_apply_action(&mut self, action: GameAction) -> Result<AppliedAction, ActionError> {
+        match action {
+            GameAction::Move { target } => {
+                let player = self.current_player;
+                let outcome = self.try_move_current_pawn(target)?;
+                Ok(AppliedAction::Moved {
+                    player,
+                    target,
+                    outcome,
+                })
+            }
+            GameAction::PlaceFence { edges } => {
+                let player = self.current_player;
+                self.try_place_fence(&edges)?;
+                Ok(AppliedAction::FencePlaced { player, edges })
+            }
+        }
+    }
 }
 
-pub fn reset_turn_state_from_config(game_config: Res<GameConfig>, mut turn_state: ResMut<TurnState>) {
+pub fn reset_turn_state_from_config(
+    game_config: Res<GameConfig>,
+    mut turn_state: ResMut<TurnState>,
+) {
     *turn_state = TurnState::new(game_config.player_count, game_config.board_radius);
 }
 

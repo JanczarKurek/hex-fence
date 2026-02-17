@@ -68,7 +68,7 @@ pub fn load_settings_from_disk() -> Option<AppSettings> {
 
 pub fn save_settings_to_disk(settings: AppSettings) -> io::Result<()> {
     let path = Path::new(SETTINGS_PATH);
-    let toml =
-        toml::to_string_pretty(&settings.clamped()).map_err(|err| io::Error::other(err.to_string()))?;
+    let toml = toml::to_string_pretty(&settings.clamped())
+        .map_err(|err| io::Error::other(err.to_string()))?;
     fs::write(path, toml)
 }

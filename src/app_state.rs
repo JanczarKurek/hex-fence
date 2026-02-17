@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use serde::{Deserialize, Serialize};
 
 #[derive(States, Default, Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub enum AppPhase {
@@ -7,7 +8,7 @@ pub enum AppPhase {
     InGame,
 }
 
-#[derive(Resource, Debug, Clone, Copy)]
+#[derive(Resource, Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct GameConfig {
     pub board_radius: i32,
     pub player_count: usize,

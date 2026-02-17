@@ -106,7 +106,8 @@ pub fn spawn_fence_segments(
             FenceSegment,
             Mesh2d(mesh.clone()),
             MeshMaterial2d(material.clone()),
-            Transform::from_translation(midpoint.extend(1.5)).with_rotation(Quat::from_rotation_z(angle)),
+            Transform::from_translation(midpoint.extend(1.5))
+                .with_rotation(Quat::from_rotation_z(angle)),
         ));
     }
 }
@@ -170,7 +171,8 @@ pub fn update_fence_preview(
             FencePreviewSegment,
             Mesh2d(mesh.clone()),
             MeshMaterial2d(material.clone()),
-            Transform::from_translation(midpoint.extend(1.6)).with_rotation(Quat::from_rotation_z(angle)),
+            Transform::from_translation(midpoint.extend(1.6))
+                .with_rotation(Quat::from_rotation_z(angle)),
         ));
     }
 }

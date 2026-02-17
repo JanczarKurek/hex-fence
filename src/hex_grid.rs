@@ -1,8 +1,9 @@
 use bevy::prelude::*;
+use serde::{Deserialize, Serialize};
 
 pub const TILE_RADIUS: f32 = 30.0;
 
-#[derive(Component, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Component, Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct AxialCoord {
     pub q: i32,
     pub r: i32,
@@ -34,7 +35,9 @@ impl AxialCoord {
     }
 
     pub fn direction_to(self, other: Self) -> Option<usize> {
-        self.neighbors().iter().position(|neighbor| *neighbor == other)
+        self.neighbors()
+            .iter()
+            .position(|neighbor| *neighbor == other)
     }
 
     pub fn to_world(self) -> Vec2 {

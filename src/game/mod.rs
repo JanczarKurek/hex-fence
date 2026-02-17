@@ -1,18 +1,19 @@
+pub mod actions;
 pub mod audio;
 mod components;
 mod fence;
 mod highlight;
 mod input;
 mod player;
-mod selection;
-mod spawn;
-mod state;
-mod ui;
 #[cfg(test)]
 mod rules_tests;
+mod selection;
+mod spawn;
+pub mod state;
+mod ui;
 
-use bevy::prelude::*;
 use crate::app_state::AppPhase;
+use bevy::prelude::*;
 
 use fence::FencePlacementState;
 use selection::PawnSelection;
@@ -26,6 +27,8 @@ impl Plugin for GamePlugin {
             .insert_resource(PawnSelection::default())
             .insert_resource(FencePlacementState::default())
             .init_resource::<audio::GameAudioAssets>()
+            .add_event::<actions::GameActionRequest>()
+            .add_event::<actions::GameActionApplied>()
             .add_event::<audio::GameSoundEvent>()
             .add_systems(Startup, audio::start_background_music)
             .add_systems(
@@ -42,9 +45,13 @@ impl Plugin for GamePlugin {
             .add_systems(
                 Update,
                 (
-                    input::move_current_pawn_on_click,
-                    fence::update_fence_preview.after(input::move_current_pawn_on_click),
-                    audio::play_sound_effects.after(input::move_current_pawn_on_click),
+                    (
+                        input::move_current_pawn_on_click,
+                        actions::apply_game_action_requests,
+                        fence::update_fence_preview,
+                        audio::play_sound_effects,
+                    )
+                        .chain(),
                     audio::update_background_music_volume,
                     highlight::update_move_highlights,
                     ui::update_turn_indicator,

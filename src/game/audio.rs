@@ -1,6 +1,6 @@
+use bevy::audio::{AudioSinkPlayback, Volume};
 use bevy::ecs::world::FromWorld;
 use bevy::prelude::*;
-use bevy::audio::{AudioSinkPlayback, Volume};
 
 use crate::settings::AppSettings;
 
@@ -67,8 +67,9 @@ pub fn play_sound_effects(
 
         commands.spawn((
             AudioPlayer::new(source),
-            PlaybackSettings::DESPAWN
-                .with_volume(Volume::Linear(app_settings.audio.effective_effects_volume())),
+            PlaybackSettings::DESPAWN.with_volume(Volume::Linear(
+                app_settings.audio.effective_effects_volume(),
+            )),
         ));
     }
 }

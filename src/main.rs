@@ -3,11 +3,12 @@ mod board;
 mod camera;
 mod game;
 mod hex_grid;
+mod network;
 mod settings;
 mod ui;
 
-use bevy::prelude::*;
 use app_state::{AppPhase, GameConfig};
+use bevy::prelude::*;
 
 fn main() {
     App::new()
@@ -25,6 +26,7 @@ fn main() {
         .add_plugins((
             board::BoardPlugin,
             camera::CameraPlugin,
+            network::NetworkPlugin,
             ui::UiPlugin,
             game::GamePlugin,
         ))

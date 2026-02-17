@@ -1,8 +1,11 @@
 use bevy::app::AppExit;
+use bevy::input::ButtonState;
+use bevy::input::keyboard::{Key, KeyboardInput};
 use bevy::prelude::*;
 use bevy::ui::RelativeCursorPosition;
 
 use crate::app_state::{AppPhase, GameConfig};
+use crate::network::{NetConfig, NetMode, NetRuntime};
 use crate::settings::{self, AppSettings};
 
 pub struct UiPlugin;
@@ -17,6 +20,9 @@ impl Plugin for UiPlugin {
                 Update,
                 (
                     handle_menu_option_buttons,
+                    handle_network_connect_button,
+                    handle_network_address_focus,
+                    handle_network_address_typing,
                     handle_start_game_button,
                     sync_menu_button_visuals,
                 )
@@ -42,6 +48,9 @@ impl Plugin for UiPlugin {
 struct MenuSelection {
     board_radius: i32,
     player_count: usize,
+    net_mode: NetMode,
+    net_address: String,
+    address_focused: bool,
 }
 
 impl Default for MenuSelection {
@@ -49,6 +58,9 @@ impl Default for MenuSelection {
         Self {
             board_radius: 4,
             player_count: 3,
+            net_mode: NetMode::Local,
+            net_address: "127.0.0.1:4000".to_string(),
+            address_focused: false,
         }
     }
 }
@@ -68,6 +80,20 @@ struct BoardSizeButton {
 struct PlayerCountButton {
     player_count: usize,
 }
+
+#[derive(Component)]
+struct NetworkModeButton {
+    mode: NetMode,
+}
+
+#[derive(Component)]
+struct NetworkAddressInputButton;
+
+#[derive(Component)]
+struct NetworkAddressText;
+
+#[derive(Component)]
+struct NetworkConnectButton;
 
 #[derive(Component)]
 struct ExitButton;
@@ -161,9 +187,17 @@ const TAB_INACTIVE: Color = Color::srgb(0.13, 0.13, 0.15);
 const SLIDER_TRACK: Color = Color::srgb(0.18, 0.18, 0.2);
 const SLIDER_FILL: Color = Color::srgb(0.25, 0.68, 0.44);
 
-fn setup_start_menu(mut commands: Commands, game_config: Res<GameConfig>, mut menu: ResMut<MenuSelection>) {
+fn setup_start_menu(
+    mut commands: Commands,
+    game_config: Res<GameConfig>,
+    net_config: Res<NetConfig>,
+    mut menu: ResMut<MenuSelection>,
+) {
     menu.board_radius = game_config.board_radius;
     menu.player_count = game_config.player_count;
+    menu.net_mode = net_config.mode;
+    menu.net_address = net_config.address.clone();
+    menu.address_focused = false;
 
     commands
         .spawn((
@@ -210,6 +244,66 @@ fn setup_start_menu(mut commands: Commands, game_config: Res<GameConfig>, mut me
                     TextColor(Color::srgb(0.9, 0.9, 0.9)),
                 ));
                 spawn_player_row(panel, &[2, 3, 6], menu.player_count);
+
+                panel.spawn((
+                    Text::new("Network Mode"),
+                    TextFont::from_font_size(20.0),
+                    TextColor(Color::srgb(0.9, 0.9, 0.9)),
+                ));
+                spawn_network_mode_row(panel, menu.net_mode);
+
+                panel.spawn((
+                    Text::new("Server Address"),
+                    TextFont::from_font_size(20.0),
+                    TextColor(Color::srgb(0.9, 0.9, 0.9)),
+                ));
+                panel
+                    .spawn((
+                        Button,
+                        NetworkAddressInputButton,
+                        Node {
+                            width: Val::Percent(100.0),
+                            height: Val::Px(38.0),
+                            justify_content: JustifyContent::FlexStart,
+                            align_items: AlignItems::Center,
+                            padding: UiRect::horizontal(Val::Px(10.0)),
+                            border: UiRect::all(Val::Px(1.0)),
+                            ..default()
+                        },
+                        BorderColor(Color::BLACK),
+                        BackgroundColor(NORMAL_BUTTON),
+                    ))
+                    .with_children(|input| {
+                        input.spawn((
+                            NetworkAddressText,
+                            Text::new(menu.net_address.clone()),
+                            TextFont::from_font_size(16.0),
+                            TextColor(Color::WHITE),
+                        ));
+                    });
+
+                panel
+                    .spawn((
+                        Button,
+                        NetworkConnectButton,
+                        Node {
+                            width: Val::Percent(100.0),
+                            height: Val::Px(40.0),
+                            justify_content: JustifyContent::Center,
+                            align_items: AlignItems::Center,
+                            border: UiRect::all(Val::Px(1.0)),
+                            ..default()
+                        },
+                        BorderColor(Color::BLACK),
+                        BackgroundColor(NORMAL_BUTTON),
+                    ))
+                    .with_children(|button| {
+                        button.spawn((
+                            Text::new("Apply Network Settings"),
+                            TextFont::from_font_size(16.0),
+                            TextColor(Color::WHITE),
+                        ));
+                    });
 
                 panel
                     .spawn((
@@ -260,7 +354,11 @@ fn spawn_choice_row(parent: &mut ChildSpawnerCommands, choices: &[i32], selected
                         ..default()
                     },
                     BorderColor(Color::BLACK),
-                    BackgroundColor(if *choice == selected { MENU_SELECTED } else { NORMAL_BUTTON }),
+                    BackgroundColor(if *choice == selected {
+                        MENU_SELECTED
+                    } else {
+                        NORMAL_BUTTON
+                    }),
                 ))
                 .with_children(|button| {
                     button.spawn((
@@ -297,12 +395,59 @@ fn spawn_player_row(parent: &mut ChildSpawnerCommands, choices: &[usize], select
                         ..default()
                     },
                     BorderColor(Color::BLACK),
-                    BackgroundColor(if *choice == selected { MENU_SELECTED } else { NORMAL_BUTTON }),
+                    BackgroundColor(if *choice == selected {
+                        MENU_SELECTED
+                    } else {
+                        NORMAL_BUTTON
+                    }),
                 ))
                 .with_children(|button| {
                     button.spawn((
                         Text::new(choice.to_string()),
                         TextFont::from_font_size(18.0),
+                        TextColor(Color::WHITE),
+                    ));
+                });
+            }
+        });
+}
+
+fn spawn_network_mode_row(parent: &mut ChildSpawnerCommands, selected: NetMode) {
+    parent
+        .spawn(Node {
+            width: Val::Percent(100.0),
+            column_gap: Val::Px(8.0),
+            flex_direction: FlexDirection::Row,
+            ..default()
+        })
+        .with_children(|row| {
+            for (label, mode) in [
+                ("Local", NetMode::Local),
+                ("Host", NetMode::Host),
+                ("Client", NetMode::Client),
+            ] {
+                row.spawn((
+                    Button,
+                    NetworkModeButton { mode },
+                    Node {
+                        width: Val::Px(96.0),
+                        height: Val::Px(38.0),
+                        justify_content: JustifyContent::Center,
+                        align_items: AlignItems::Center,
+                        border: UiRect::all(Val::Px(1.0)),
+                        ..default()
+                    },
+                    BorderColor(Color::BLACK),
+                    BackgroundColor(if mode == selected {
+                        MENU_SELECTED
+                    } else {
+                        NORMAL_BUTTON
+                    }),
+                ))
+                .with_children(|button| {
+                    button.spawn((
+                        Text::new(label),
+                        TextFont::from_font_size(16.0),
                         TextColor(Color::WHITE),
                     ));
                 });
@@ -336,6 +481,16 @@ fn handle_menu_option_buttons(
             Without<BoardSizeButton>,
         ),
     >,
+    mut network_mode_buttons: Query<
+        (&Interaction, &NetworkModeButton),
+        (
+            Changed<Interaction>,
+            With<Button>,
+            With<NetworkModeButton>,
+            Without<BoardSizeButton>,
+            Without<PlayerCountButton>,
+        ),
+    >,
 ) {
     for (interaction, button) in &mut board_buttons {
         if *interaction == Interaction::Pressed {
@@ -348,51 +503,206 @@ fn handle_menu_option_buttons(
             menu.player_count = button.player_count;
         }
     }
+
+    for (interaction, button) in &mut network_mode_buttons {
+        if *interaction == Interaction::Pressed {
+            menu.net_mode = button.mode;
+        }
+    }
+}
+
+fn handle_network_connect_button(
+    menu: Res<MenuSelection>,
+    mut net_config: ResMut<NetConfig>,
+    mut interactions: Query<
+        (&Interaction, &mut BackgroundColor),
+        (Changed<Interaction>, With<NetworkConnectButton>),
+    >,
+) {
+    for (interaction, mut color) in &mut interactions {
+        match *interaction {
+            Interaction::Pressed => {
+                net_config.mode = menu.net_mode;
+                let trimmed = menu.net_address.trim();
+                net_config.address = if trimmed.is_empty() {
+                    "127.0.0.1:4000".to_string()
+                } else {
+                    trimmed.to_string()
+                };
+                *color = PRESSED_BUTTON.into();
+            }
+            Interaction::Hovered => *color = HOVERED_BUTTON.into(),
+            Interaction::None => *color = NORMAL_BUTTON.into(),
+        }
+    }
+}
+
+fn handle_network_address_focus(
+    mut menu: ResMut<MenuSelection>,
+    mut interactions: Query<
+        (&Interaction, &mut BackgroundColor),
+        (Changed<Interaction>, With<NetworkAddressInputButton>),
+    >,
+) {
+    let mut clicked_input = false;
+    for (interaction, mut color) in &mut interactions {
+        match *interaction {
+            Interaction::Pressed => {
+                clicked_input = true;
+                *color = MENU_SELECTED.into();
+            }
+            Interaction::Hovered if !menu.address_focused => *color = HOVERED_BUTTON.into(),
+            Interaction::None if !menu.address_focused => *color = NORMAL_BUTTON.into(),
+            _ => {}
+        }
+    }
+
+    if clicked_input {
+        menu.address_focused = true;
+    }
+}
+
+fn handle_network_address_typing(
+    mut menu: ResMut<MenuSelection>,
+    mut key_events: EventReader<KeyboardInput>,
+) {
+    if !menu.address_focused {
+        key_events.clear();
+        return;
+    }
+
+    for event in key_events.read() {
+        if event.state != ButtonState::Pressed {
+            continue;
+        }
+
+        match event.key_code {
+            KeyCode::Backspace => {
+                menu.net_address.pop();
+                continue;
+            }
+            KeyCode::Enter | KeyCode::NumpadEnter | KeyCode::Escape => {
+                menu.address_focused = false;
+                continue;
+            }
+            _ => {}
+        }
+
+        if let Key::Character(text) = &event.logical_key {
+            for ch in text.chars() {
+                if is_valid_address_char(ch) && menu.net_address.len() < 80 {
+                    menu.net_address.push(ch);
+                }
+            }
+        }
+    }
+}
+
+fn is_valid_address_char(ch: char) -> bool {
+    ch.is_ascii_alphanumeric() || matches!(ch, '.' | ':' | '-')
 }
 
 fn sync_menu_button_visuals(
     menu: Res<MenuSelection>,
-    mut board_buttons: Query<
-        (&Interaction, &BoardSizeButton, &mut BackgroundColor),
-        (With<Button>, With<BoardSizeButton>, Without<PlayerCountButton>),
+    net_runtime: Res<NetRuntime>,
+    mut option_buttons: Query<
+        (
+            &Interaction,
+            Option<&BoardSizeButton>,
+            Option<&PlayerCountButton>,
+            Option<&NetworkModeButton>,
+            Option<&NetworkAddressInputButton>,
+            &mut BackgroundColor,
+        ),
+        With<Button>,
     >,
-    mut player_buttons: Query<
-        (&Interaction, &PlayerCountButton, &mut BackgroundColor),
-        (With<Button>, With<PlayerCountButton>, Without<BoardSizeButton>),
-    >,
+    mut address_texts: Query<&mut Text, With<NetworkAddressText>>,
 ) {
-    for (interaction, button, mut color) in &mut board_buttons {
-        *color = if button.radius == menu.board_radius {
-            MENU_SELECTED.into()
-        } else if *interaction == Interaction::Hovered {
-            HOVERED_BUTTON.into()
+    for (interaction, board, player, network_mode, address_input, mut color) in &mut option_buttons {
+        *color = if let Some(button) = board {
+            if button.radius == menu.board_radius {
+                MENU_SELECTED.into()
+            } else if *interaction == Interaction::Hovered {
+                HOVERED_BUTTON.into()
+            } else {
+                NORMAL_BUTTON.into()
+            }
+        } else if let Some(button) = player {
+            if button.player_count == menu.player_count {
+                MENU_SELECTED.into()
+            } else if *interaction == Interaction::Hovered {
+                HOVERED_BUTTON.into()
+            } else {
+                NORMAL_BUTTON.into()
+            }
+        } else if let Some(button) = network_mode {
+            if button.mode == menu.net_mode {
+                MENU_SELECTED.into()
+            } else if *interaction == Interaction::Hovered {
+                HOVERED_BUTTON.into()
+            } else {
+                NORMAL_BUTTON.into()
+            }
+        } else if address_input.is_some() {
+            if menu.address_focused {
+                MENU_SELECTED.into()
+            } else if *interaction == Interaction::Hovered {
+                HOVERED_BUTTON.into()
+            } else {
+                NORMAL_BUTTON.into()
+            }
         } else {
-            NORMAL_BUTTON.into()
+            *color
         };
     }
 
-    for (interaction, button, mut color) in &mut player_buttons {
-        *color = if button.player_count == menu.player_count {
-            MENU_SELECTED.into()
-        } else if *interaction == Interaction::Hovered {
-            HOVERED_BUTTON.into()
-        } else {
-            NORMAL_BUTTON.into()
-        };
+    for mut text in &mut address_texts {
+        let mut label = menu.net_address.clone();
+        if menu.address_focused {
+            label.push('_');
+        }
+        if menu.net_mode == NetMode::Client {
+            label.push_str(if net_runtime.connected {
+                "  (connected)"
+            } else {
+                "  (not connected)"
+            });
+        }
+        *text = Text::new(label);
     }
 }
 
 fn handle_start_game_button(
     menu: Res<MenuSelection>,
+    mut net_config: ResMut<NetConfig>,
     mut game_config: ResMut<GameConfig>,
-    mut interactions: Query<(&Interaction, &mut BackgroundColor), (Changed<Interaction>, With<StartGameButton>)>,
+    mut interactions: Query<
+        (&Interaction, &mut BackgroundColor),
+        (Changed<Interaction>, With<StartGameButton>),
+    >,
     mut next_phase: ResMut<NextState<AppPhase>>,
 ) {
     for (interaction, mut color) in &mut interactions {
+        if matches!(menu.net_mode, NetMode::Client) {
+            *color = NORMAL_BUTTON.into();
+            continue;
+        }
+
         match *interaction {
             Interaction::Pressed => {
+                net_config.mode = menu.net_mode;
+                let trimmed = menu.net_address.trim();
+                net_config.address = if trimmed.is_empty() {
+                    "127.0.0.1:4000".to_string()
+                } else {
+                    trimmed.to_string()
+                };
                 game_config.board_radius = menu.board_radius;
-                game_config.player_count = menu.player_count;
+                game_config.player_count = if matches!(menu.net_mode, NetMode::Host) {
+                    2
+                } else {
+                    menu.player_count
+                };
                 next_phase.set(AppPhase::InGame);
                 *color = PRESSED_BUTTON.into();
             }
