@@ -33,6 +33,19 @@ pub struct TurnState {
     pub blocked_edges: HashSet<EdgeKey>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ActionError {
+    GameFinished,
+    IllegalMove,
+    IllegalFencePlacement,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ActionOutcome {
+    TurnAdvanced,
+    Won(usize),
+}
+
 impl Default for TurnState {
     fn default() -> Self {
         Self::new(3, 4)
@@ -177,6 +190,49 @@ impl TurnState {
         }
         self.fences_left[self.current_player] -= 1;
         self.advance_turn();
+    }
+
+    pub fn try_place_fence(&mut self, edges: &[EdgeKey; 3]) -> Result<(), ActionError> {
+        if self.winner.is_some() {
+            return Err(ActionError::GameFinished);
+        }
+
+        if !self.can_place_fence(edges) {
+            return Err(ActionError::IllegalFencePlacement);
+        }
+
+        self.place_fence(edges);
+        Ok(())
+    }
+
+    pub fn try_move_current_pawn(&mut self, target: AxialCoord) -> Result<ActionOutcome, ActionError> {
+        if self.winner.is_some() {
+            return Err(ActionError::GameFinished);
+        }
+
+        if !target.is_inside_board(self.board_radius) {
+            return Err(ActionError::IllegalMove);
+        }
+
+        let current = self.current_player;
+        let current_pos = self.pawn_positions[current];
+        if target == current_pos {
+            return Err(ActionError::IllegalMove);
+        }
+
+        let legal_moves = self.legal_moves_for_current();
+        if !legal_moves.contains(&target) {
+            return Err(ActionError::IllegalMove);
+        }
+
+        self.pawn_positions[current] = target;
+        if target.is_on_side(self.players[current].goal_side, self.board_radius) {
+            self.winner = Some(current);
+            return Ok(ActionOutcome::Won(current));
+        }
+
+        self.advance_turn();
+        Ok(ActionOutcome::TurnAdvanced)
     }
 }
 

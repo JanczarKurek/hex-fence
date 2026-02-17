@@ -8,6 +8,8 @@ mod selection;
 mod spawn;
 mod state;
 mod ui;
+#[cfg(test)]
+mod rules_tests;
 
 use bevy::prelude::*;
 use crate::app_state::AppPhase;

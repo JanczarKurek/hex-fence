@@ -8,7 +8,7 @@ use super::audio::GameSoundEvent;
 use super::components::Pawn;
 use super::fence::{self, FencePlacementState};
 use super::selection::PawnSelection;
-use super::state::TurnState;
+use super::state::{ActionOutcome, TurnState};
 
 pub fn move_current_pawn_on_click(
     keys: Res<ButtonInput<KeyCode>>,
@@ -61,14 +61,13 @@ pub fn move_current_pawn_on_click(
 
     if fence_placement.enabled {
         let edges = fence::fence_edges(target, fence_placement.shape, fence_placement.orientation);
-        if !turn_state.can_place_fence(&edges) {
+        let current = turn_state.current_player;
+        if turn_state.try_place_fence(&edges).is_err() {
             return;
         }
 
-        let current = turn_state.current_player;
         let color = turn_state.players[current].pawn_color;
         fence::spawn_fence_segments(&mut commands, &mut meshes, &mut materials, &edges, color);
-        turn_state.place_fence(&edges);
         selection.current_selected = false;
         sound_events.write(GameSoundEvent::MovePawn);
         return;
@@ -95,24 +94,21 @@ pub fn move_current_pawn_on_click(
         return;
     }
 
-    turn_state.pawn_positions[current] = target;
-    sound_events.write(GameSoundEvent::MovePawn);
+    if let Ok(outcome) = turn_state.try_move_current_pawn(target) {
+        sound_events.write(GameSoundEvent::MovePawn);
 
-    for (pawn, mut transform) in &mut pawn_query {
-        if pawn.player_index == current {
-            let world = target.to_world();
-            transform.translation = Vec3::new(world.x, world.y, 2.0);
-            break;
+        for (pawn, mut transform) in &mut pawn_query {
+            if pawn.player_index == current {
+                let world = target.to_world();
+                transform.translation = Vec3::new(world.x, world.y, 2.0);
+                break;
+            }
+        }
+
+        if matches!(outcome, ActionOutcome::Won(_)) {
+            sound_events.write(GameSoundEvent::Win);
         }
     }
 
-    if target.is_on_side(turn_state.players[current].goal_side, turn_state.board_radius) {
-        turn_state.winner = Some(current);
-        sound_events.write(GameSoundEvent::Win);
-        selection.current_selected = false;
-        return;
-    }
-
-    turn_state.advance_turn();
     selection.current_selected = false;
 }
