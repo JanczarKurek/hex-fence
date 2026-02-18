@@ -19,11 +19,14 @@ impl Plugin for UiPlugin {
             .add_systems(
                 Update,
                 (
+                    handle_mode_choice_buttons,
+                    handle_back_to_mode_button,
                     handle_menu_option_buttons,
                     handle_network_connect_button,
                     handle_network_address_focus,
                     handle_network_address_typing,
                     handle_start_game_button,
+                    sync_menu_layout_visibility,
                     sync_menu_button_visuals,
                 )
                     .run_if(in_state(AppPhase::Menu)),
@@ -46,6 +49,8 @@ impl Plugin for UiPlugin {
 
 #[derive(Resource)]
 struct MenuSelection {
+    screen: MenuScreen,
+    game_mode: StartGameMode,
     board_radius: i32,
     player_count: usize,
     net_mode: NetMode,
@@ -56,6 +61,8 @@ struct MenuSelection {
 impl Default for MenuSelection {
     fn default() -> Self {
         Self {
+            screen: MenuScreen::ModeSelect,
+            game_mode: StartGameMode::Local,
             board_radius: 4,
             player_count: 3,
             net_mode: NetMode::Local,
@@ -72,6 +79,9 @@ struct StartMenuRoot;
 struct StartGameButton;
 
 #[derive(Component)]
+struct StartGameButtonLabel;
+
+#[derive(Component)]
 struct BoardSizeButton {
     radius: i32,
 }
@@ -80,6 +90,26 @@ struct BoardSizeButton {
 struct PlayerCountButton {
     player_count: usize,
 }
+
+#[derive(Component)]
+struct ModeChoiceButton {
+    mode: StartGameMode,
+}
+
+#[derive(Component)]
+struct BackToModeButton;
+
+#[derive(Component)]
+struct MenuScreenModeSelect;
+
+#[derive(Component)]
+struct MenuScreenSetup;
+
+#[derive(Component)]
+struct LocalOnly;
+
+#[derive(Component)]
+struct NetworkOnly;
 
 #[derive(Component)]
 struct NetworkModeButton {
@@ -94,6 +124,21 @@ struct NetworkAddressText;
 
 #[derive(Component)]
 struct NetworkConnectButton;
+
+#[derive(Component)]
+struct ConnectedPlayersText;
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum MenuScreen {
+    ModeSelect,
+    Setup,
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum StartGameMode {
+    Local,
+    Network,
+}
 
 #[derive(Component)]
 struct ExitButton;
@@ -193,6 +238,12 @@ fn setup_start_menu(
     net_config: Res<NetConfig>,
     mut menu: ResMut<MenuSelection>,
 ) {
+    menu.screen = MenuScreen::ModeSelect;
+    menu.game_mode = if matches!(net_config.mode, NetMode::Local) {
+        StartGameMode::Local
+    } else {
+        StartGameMode::Network
+    };
     menu.board_radius = game_config.board_radius;
     menu.player_count = game_config.player_count;
     menu.net_mode = net_config.mode;
@@ -231,102 +282,237 @@ fn setup_start_menu(
                     TextColor(Color::WHITE),
                 ));
 
-                panel.spawn((
-                    Text::new("Board Size"),
-                    TextFont::from_font_size(20.0),
-                    TextColor(Color::srgb(0.9, 0.9, 0.9)),
-                ));
-                spawn_choice_row(panel, &[3, 4, 5, 6], menu.board_radius);
-
-                panel.spawn((
-                    Text::new("Players"),
-                    TextFont::from_font_size(20.0),
-                    TextColor(Color::srgb(0.9, 0.9, 0.9)),
-                ));
-                spawn_player_row(panel, &[2, 3, 6], menu.player_count);
-
-                panel.spawn((
-                    Text::new("Network Mode"),
-                    TextFont::from_font_size(20.0),
-                    TextColor(Color::srgb(0.9, 0.9, 0.9)),
-                ));
-                spawn_network_mode_row(panel, menu.net_mode);
-
-                panel.spawn((
-                    Text::new("Server Address"),
-                    TextFont::from_font_size(20.0),
-                    TextColor(Color::srgb(0.9, 0.9, 0.9)),
-                ));
                 panel
                     .spawn((
-                        Button,
-                        NetworkAddressInputButton,
+                        MenuScreenModeSelect,
                         Node {
                             width: Val::Percent(100.0),
-                            height: Val::Px(38.0),
-                            justify_content: JustifyContent::FlexStart,
-                            align_items: AlignItems::Center,
-                            padding: UiRect::horizontal(Val::Px(10.0)),
-                            border: UiRect::all(Val::Px(1.0)),
+                            row_gap: Val::Px(12.0),
+                            flex_direction: FlexDirection::Column,
                             ..default()
                         },
-                        BorderColor(Color::BLACK),
-                        BackgroundColor(NORMAL_BUTTON),
                     ))
-                    .with_children(|input| {
-                        input.spawn((
-                            NetworkAddressText,
-                            Text::new(menu.net_address.clone()),
-                            TextFont::from_font_size(16.0),
-                            TextColor(Color::WHITE),
+                    .with_children(|step| {
+                        step.spawn((
+                            Text::new("Choose Mode"),
+                            TextFont::from_font_size(20.0),
+                            TextColor(Color::srgb(0.9, 0.9, 0.9)),
                         ));
+                        step.spawn(Node {
+                            width: Val::Percent(100.0),
+                            column_gap: Val::Px(10.0),
+                            ..default()
+                        })
+                        .with_children(|row| {
+                            row.spawn((
+                                Button,
+                                ModeChoiceButton {
+                                    mode: StartGameMode::Local,
+                                },
+                                Node {
+                                    width: Val::Px(220.0),
+                                    height: Val::Px(44.0),
+                                    justify_content: JustifyContent::Center,
+                                    align_items: AlignItems::Center,
+                                    border: UiRect::all(Val::Px(1.0)),
+                                    ..default()
+                                },
+                                BorderColor(Color::BLACK),
+                                BackgroundColor(NORMAL_BUTTON),
+                            ))
+                            .with_children(|button| {
+                                button.spawn((
+                                    Text::new("Local Multiplayer"),
+                                    TextFont::from_font_size(18.0),
+                                    TextColor(Color::WHITE),
+                                ));
+                            });
+                            row.spawn((
+                                Button,
+                                ModeChoiceButton {
+                                    mode: StartGameMode::Network,
+                                },
+                                Node {
+                                    width: Val::Px(240.0),
+                                    height: Val::Px(44.0),
+                                    justify_content: JustifyContent::Center,
+                                    align_items: AlignItems::Center,
+                                    border: UiRect::all(Val::Px(1.0)),
+                                    ..default()
+                                },
+                                BorderColor(Color::BLACK),
+                                BackgroundColor(NORMAL_BUTTON),
+                            ))
+                            .with_children(|button| {
+                                button.spawn((
+                                    Text::new("Network Multiplayer"),
+                                    TextFont::from_font_size(18.0),
+                                    TextColor(Color::WHITE),
+                                ));
+                            });
+                        });
                     });
 
                 panel
                     .spawn((
-                        Button,
-                        NetworkConnectButton,
+                        MenuScreenSetup,
                         Node {
                             width: Val::Percent(100.0),
-                            height: Val::Px(40.0),
-                            justify_content: JustifyContent::Center,
-                            align_items: AlignItems::Center,
-                            border: UiRect::all(Val::Px(1.0)),
+                            row_gap: Val::Px(12.0),
+                            flex_direction: FlexDirection::Column,
+                            display: Display::None,
                             ..default()
                         },
-                        BorderColor(Color::BLACK),
-                        BackgroundColor(NORMAL_BUTTON),
                     ))
-                    .with_children(|button| {
-                        button.spawn((
-                            Text::new("Apply Network Settings"),
-                            TextFont::from_font_size(16.0),
-                            TextColor(Color::WHITE),
-                        ));
-                    });
+                    .with_children(|step| {
+                        step.spawn((
+                            Button,
+                            BackToModeButton,
+                            Node {
+                                width: Val::Px(120.0),
+                                height: Val::Px(36.0),
+                                justify_content: JustifyContent::Center,
+                                align_items: AlignItems::Center,
+                                border: UiRect::all(Val::Px(1.0)),
+                                ..default()
+                            },
+                            BorderColor(Color::BLACK),
+                            BackgroundColor(NORMAL_BUTTON),
+                        ))
+                        .with_children(|button| {
+                            button.spawn((
+                                Text::new("Back"),
+                                TextFont::from_font_size(16.0),
+                                TextColor(Color::WHITE),
+                            ));
+                        });
 
-                panel
-                    .spawn((
-                        Button,
-                        StartGameButton,
-                        Node {
-                            width: Val::Percent(100.0),
-                            height: Val::Px(48.0),
-                            justify_content: JustifyContent::Center,
-                            align_items: AlignItems::Center,
-                            border: UiRect::all(Val::Px(2.0)),
-                            margin: UiRect::top(Val::Px(8.0)),
-                            ..default()
-                        },
-                        BorderColor(Color::BLACK),
-                        BackgroundColor(MENU_START),
-                    ))
-                    .with_children(|button| {
-                        button.spawn((
-                            Text::new("Start Game"),
-                            TextFont::from_font_size(24.0),
-                            TextColor(Color::WHITE),
+                        step.spawn((
+                            Text::new("Board Size"),
+                            TextFont::from_font_size(20.0),
+                            TextColor(Color::srgb(0.9, 0.9, 0.9)),
                         ));
+                        spawn_choice_row(step, &[3, 4, 5, 6], menu.board_radius);
+
+                        step.spawn((
+                            LocalOnly,
+                            Text::new("Players"),
+                            TextFont::from_font_size(20.0),
+                            TextColor(Color::srgb(0.9, 0.9, 0.9)),
+                        ));
+                        step.spawn((LocalOnly, Node::default()))
+                            .with_children(|local| {
+                                spawn_player_row(local, &[2, 3, 6], menu.player_count);
+                            });
+
+                        step.spawn((
+                            NetworkOnly,
+                            Text::new("Role"),
+                            TextFont::from_font_size(20.0),
+                            TextColor(Color::srgb(0.9, 0.9, 0.9)),
+                        ));
+                        step.spawn((NetworkOnly, Node::default()))
+                            .with_children(|network| {
+                                spawn_network_mode_row(network, menu.net_mode);
+                            });
+
+                        step.spawn((
+                            NetworkOnly,
+                            Text::new("Server Address"),
+                            TextFont::from_font_size(20.0),
+                            TextColor(Color::srgb(0.9, 0.9, 0.9)),
+                        ));
+                        step.spawn((NetworkOnly, Node::default()))
+                            .with_children(|network| {
+                                network
+                                    .spawn((
+                                        Button,
+                                        NetworkAddressInputButton,
+                                        Node {
+                                            width: Val::Percent(100.0),
+                                            height: Val::Px(38.0),
+                                            justify_content: JustifyContent::FlexStart,
+                                            align_items: AlignItems::Center,
+                                            padding: UiRect::horizontal(Val::Px(10.0)),
+                                            border: UiRect::all(Val::Px(1.0)),
+                                            ..default()
+                                        },
+                                        BorderColor(Color::BLACK),
+                                        BackgroundColor(NORMAL_BUTTON),
+                                    ))
+                                    .with_children(|input| {
+                                        input.spawn((
+                                            NetworkAddressText,
+                                            Text::new(menu.net_address.clone()),
+                                            TextFont::from_font_size(16.0),
+                                            TextColor(Color::WHITE),
+                                        ));
+                                    });
+                            });
+
+                        step.spawn((NetworkOnly, Node::default()))
+                            .with_children(|network| {
+                                network
+                                    .spawn((
+                                        Button,
+                                        NetworkConnectButton,
+                                        Node {
+                                            width: Val::Percent(100.0),
+                                            height: Val::Px(40.0),
+                                            justify_content: JustifyContent::Center,
+                                            align_items: AlignItems::Center,
+                                            border: UiRect::all(Val::Px(1.0)),
+                                            ..default()
+                                        },
+                                        BorderColor(Color::BLACK),
+                                        BackgroundColor(NORMAL_BUTTON),
+                                    ))
+                                    .with_children(|button| {
+                                        button.spawn((
+                                            Text::new("Apply Network Settings"),
+                                            TextFont::from_font_size(16.0),
+                                            TextColor(Color::WHITE),
+                                        ));
+                                    });
+                            });
+
+                        step.spawn((
+                            NetworkOnly,
+                            Text::new("Connected Players"),
+                            TextFont::from_font_size(20.0),
+                            TextColor(Color::srgb(0.9, 0.9, 0.9)),
+                        ));
+                        step.spawn((
+                            ConnectedPlayersText,
+                            NetworkOnly,
+                            Text::new(""),
+                            TextFont::from_font_size(16.0),
+                            TextColor(Color::srgb(0.9, 0.9, 0.9)),
+                        ));
+
+                        step.spawn((
+                            Button,
+                            StartGameButton,
+                            Node {
+                                width: Val::Percent(100.0),
+                                height: Val::Px(48.0),
+                                justify_content: JustifyContent::Center,
+                                align_items: AlignItems::Center,
+                                border: UiRect::all(Val::Px(2.0)),
+                                margin: UiRect::top(Val::Px(8.0)),
+                                ..default()
+                            },
+                            BorderColor(Color::BLACK),
+                            BackgroundColor(MENU_START),
+                        ))
+                        .with_children(|button| {
+                            button.spawn((
+                                StartGameButtonLabel,
+                                Text::new("Start Game"),
+                                TextFont::from_font_size(24.0),
+                                TextColor(Color::WHITE),
+                            ));
+                        });
                     });
             });
         });
@@ -421,11 +607,7 @@ fn spawn_network_mode_row(parent: &mut ChildSpawnerCommands, selected: NetMode) 
             ..default()
         })
         .with_children(|row| {
-            for (label, mode) in [
-                ("Local", NetMode::Local),
-                ("Host", NetMode::Host),
-                ("Client", NetMode::Client),
-            ] {
+            for (label, mode) in [("Host", NetMode::Host), ("Client", NetMode::Client)] {
                 row.spawn((
                     Button,
                     NetworkModeButton { mode },
@@ -461,6 +643,45 @@ fn cleanup_start_menu(mut commands: Commands, roots: Query<Entity, With<StartMen
     }
 }
 
+fn handle_mode_choice_buttons(
+    mut menu: ResMut<MenuSelection>,
+    mut interactions: Query<
+        (&Interaction, &ModeChoiceButton),
+        (Changed<Interaction>, With<Button>),
+    >,
+) {
+    for (interaction, button) in &mut interactions {
+        if *interaction == Interaction::Pressed {
+            menu.game_mode = button.mode;
+            menu.screen = MenuScreen::Setup;
+            menu.address_focused = false;
+            if menu.game_mode == StartGameMode::Network && matches!(menu.net_mode, NetMode::Local) {
+                menu.net_mode = NetMode::Host;
+            }
+        }
+    }
+}
+
+fn handle_back_to_mode_button(
+    mut menu: ResMut<MenuSelection>,
+    mut interactions: Query<
+        (&Interaction, &mut BackgroundColor),
+        (Changed<Interaction>, With<BackToModeButton>),
+    >,
+) {
+    for (interaction, mut color) in &mut interactions {
+        match *interaction {
+            Interaction::Pressed => {
+                menu.screen = MenuScreen::ModeSelect;
+                menu.address_focused = false;
+                *color = PRESSED_BUTTON.into();
+            }
+            Interaction::Hovered => *color = HOVERED_BUTTON.into(),
+            Interaction::None => *color = NORMAL_BUTTON.into(),
+        }
+    }
+}
+
 fn handle_menu_option_buttons(
     mut menu: ResMut<MenuSelection>,
     mut board_buttons: Query<
@@ -492,6 +713,10 @@ fn handle_menu_option_buttons(
         ),
     >,
 ) {
+    if menu.screen != MenuScreen::Setup {
+        return;
+    }
+
     for (interaction, button) in &mut board_buttons {
         if *interaction == Interaction::Pressed {
             menu.board_radius = button.radius;
@@ -519,6 +744,10 @@ fn handle_network_connect_button(
         (Changed<Interaction>, With<NetworkConnectButton>),
     >,
 ) {
+    if menu.screen != MenuScreen::Setup || menu.game_mode != StartGameMode::Network {
+        return;
+    }
+
     for (interaction, mut color) in &mut interactions {
         match *interaction {
             Interaction::Pressed => {
@@ -544,6 +773,10 @@ fn handle_network_address_focus(
         (Changed<Interaction>, With<NetworkAddressInputButton>),
     >,
 ) {
+    if menu.screen != MenuScreen::Setup || menu.game_mode != StartGameMode::Network {
+        return;
+    }
+
     let mut clicked_input = false;
     for (interaction, mut color) in &mut interactions {
         match *interaction {
@@ -566,6 +799,11 @@ fn handle_network_address_typing(
     mut menu: ResMut<MenuSelection>,
     mut key_events: EventReader<KeyboardInput>,
 ) {
+    if menu.screen != MenuScreen::Setup || menu.game_mode != StartGameMode::Network {
+        key_events.clear();
+        return;
+    }
+
     if !menu.address_focused {
         key_events.clear();
         return;
@@ -602,6 +840,53 @@ fn is_valid_address_char(ch: char) -> bool {
     ch.is_ascii_alphanumeric() || matches!(ch, '.' | ':' | '-')
 }
 
+fn sync_menu_layout_visibility(
+    menu: Res<MenuSelection>,
+    mut sections: Query<
+        (
+            Option<&MenuScreenModeSelect>,
+            Option<&MenuScreenSetup>,
+            Option<&LocalOnly>,
+            Option<&NetworkOnly>,
+            &mut Node,
+        ),
+    >,
+) {
+    if !menu.is_changed() {
+        return;
+    }
+
+    for (mode_screen, setup_screen, local_only, network_only, mut node) in &mut sections {
+        if mode_screen.is_some() {
+            node.display = if menu.screen == MenuScreen::ModeSelect {
+                Display::Flex
+            } else {
+                Display::None
+            };
+        } else if setup_screen.is_some() {
+            node.display = if menu.screen == MenuScreen::Setup {
+                Display::Flex
+            } else {
+                Display::None
+            };
+        } else if local_only.is_some() {
+            node.display = if menu.screen == MenuScreen::Setup && menu.game_mode == StartGameMode::Local
+            {
+                Display::Flex
+            } else {
+                Display::None
+            };
+        } else if network_only.is_some() {
+            node.display =
+                if menu.screen == MenuScreen::Setup && menu.game_mode == StartGameMode::Network {
+                    Display::Flex
+                } else {
+                    Display::None
+                };
+        }
+    }
+}
+
 fn sync_menu_button_visuals(
     menu: Res<MenuSelection>,
     net_runtime: Res<NetRuntime>,
@@ -610,15 +895,25 @@ fn sync_menu_button_visuals(
             &Interaction,
             Option<&BoardSizeButton>,
             Option<&PlayerCountButton>,
+            Option<&ModeChoiceButton>,
             Option<&NetworkModeButton>,
             Option<&NetworkAddressInputButton>,
             &mut BackgroundColor,
         ),
         With<Button>,
     >,
-    mut address_texts: Query<&mut Text, With<NetworkAddressText>>,
+    mut menu_texts: Query<
+        (
+            Option<&NetworkAddressText>,
+            Option<&ConnectedPlayersText>,
+            Option<&StartGameButtonLabel>,
+            &mut Text,
+        ),
+    >,
 ) {
-    for (interaction, board, player, network_mode, address_input, mut color) in &mut option_buttons {
+    for (interaction, board, player, mode_choice, network_mode, address_input, mut color) in
+        &mut option_buttons
+    {
         *color = if let Some(button) = board {
             if button.radius == menu.board_radius {
                 MENU_SELECTED.into()
@@ -629,6 +924,14 @@ fn sync_menu_button_visuals(
             }
         } else if let Some(button) = player {
             if button.player_count == menu.player_count {
+                MENU_SELECTED.into()
+            } else if *interaction == Interaction::Hovered {
+                HOVERED_BUTTON.into()
+            } else {
+                NORMAL_BUTTON.into()
+            }
+        } else if let Some(button) = mode_choice {
+            if button.mode == menu.game_mode {
                 MENU_SELECTED.into()
             } else if *interaction == Interaction::Hovered {
                 HOVERED_BUTTON.into()
@@ -656,19 +959,36 @@ fn sync_menu_button_visuals(
         };
     }
 
-    for mut text in &mut address_texts {
-        let mut label = menu.net_address.clone();
-        if menu.address_focused {
-            label.push('_');
-        }
-        if menu.net_mode == NetMode::Client {
-            label.push_str(if net_runtime.connected {
-                "  (connected)"
+    for (address_text, connected_text, start_text, mut text) in &mut menu_texts {
+        if address_text.is_some() {
+            let mut label = menu.net_address.clone();
+            if menu.address_focused {
+                label.push('_');
+            }
+            if menu.net_mode == NetMode::Client {
+                label.push_str(if net_runtime.connected {
+                    "  (connected)"
+                } else {
+                    "  (not connected)"
+                });
+            }
+            *text = Text::new(label);
+        } else if connected_text.is_some() {
+            *text = Text::new(connected_players_label(
+                menu.game_mode,
+                menu.net_mode,
+                net_runtime.connected,
+            ));
+        } else if start_text.is_some() {
+            let label = if menu.game_mode == StartGameMode::Network
+                && menu.net_mode == NetMode::Client
+            {
+                "Waiting for Host"
             } else {
-                "  (not connected)"
-            });
+                "Start Game"
+            };
+            *text = Text::new(label);
         }
-        *text = Text::new(label);
     }
 }
 
@@ -682,15 +1002,23 @@ fn handle_start_game_button(
     >,
     mut next_phase: ResMut<NextState<AppPhase>>,
 ) {
+    if menu.screen != MenuScreen::Setup {
+        return;
+    }
+
     for (interaction, mut color) in &mut interactions {
-        if matches!(menu.net_mode, NetMode::Client) {
+        if menu.game_mode == StartGameMode::Network && matches!(menu.net_mode, NetMode::Client) {
             *color = NORMAL_BUTTON.into();
             continue;
         }
 
         match *interaction {
             Interaction::Pressed => {
-                net_config.mode = menu.net_mode;
+                net_config.mode = if menu.game_mode == StartGameMode::Local {
+                    NetMode::Local
+                } else {
+                    menu.net_mode
+                };
                 let trimmed = menu.net_address.trim();
                 net_config.address = if trimmed.is_empty() {
                     "127.0.0.1:4000".to_string()
@@ -698,7 +1026,7 @@ fn handle_start_game_button(
                     trimmed.to_string()
                 };
                 game_config.board_radius = menu.board_radius;
-                game_config.player_count = if matches!(menu.net_mode, NetMode::Host) {
+                game_config.player_count = if menu.game_mode == StartGameMode::Network {
                     2
                 } else {
                     menu.player_count
@@ -709,6 +1037,24 @@ fn handle_start_game_button(
             Interaction::Hovered => *color = HOVERED_BUTTON.into(),
             Interaction::None => *color = MENU_START.into(),
         }
+    }
+}
+
+fn connected_players_label(game_mode: StartGameMode, net_mode: NetMode, connected: bool) -> String {
+    if game_mode != StartGameMode::Network {
+        return "Not used in local mode.".to_string();
+    }
+
+    match net_mode {
+        NetMode::Host => format!(
+            "1. Player 1 (Host) - You\n2. Player 2 (Client) - {}",
+            if connected { "Connected" } else { "Waiting" }
+        ),
+        NetMode::Client => format!(
+            "1. Player 1 (Host) - {}\n2. Player 2 (Client) - You",
+            if connected { "Connected" } else { "Waiting" }
+        ),
+        NetMode::Local => "Choose Host or Client.".to_string(),
     }
 }
 
