@@ -752,6 +752,7 @@ fn handle_network_connect_button(
         match *interaction {
             Interaction::Pressed => {
                 net_config.mode = menu.net_mode;
+                net_config.local_player_index = local_player_index_for_mode(menu.net_mode);
                 let trimmed = menu.net_address.trim();
                 net_config.address = if trimmed.is_empty() {
                     "127.0.0.1:4000".to_string()
@@ -1019,6 +1020,7 @@ fn handle_start_game_button(
                 } else {
                     menu.net_mode
                 };
+                net_config.local_player_index = local_player_index_for_mode(net_config.mode);
                 let trimmed = menu.net_address.trim();
                 net_config.address = if trimmed.is_empty() {
                     "127.0.0.1:4000".to_string()
@@ -1037,6 +1039,14 @@ fn handle_start_game_button(
             Interaction::Hovered => *color = HOVERED_BUTTON.into(),
             Interaction::None => *color = MENU_START.into(),
         }
+    }
+}
+
+fn local_player_index_for_mode(mode: NetMode) -> usize {
+    if matches!(mode, NetMode::Client) {
+        1
+    } else {
+        0
     }
 }
 
