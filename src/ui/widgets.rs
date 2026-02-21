@@ -1,0 +1,140 @@
+use bevy::prelude::*;
+use bevy::ui::RelativeCursorPosition;
+
+use crate::network::NetMode;
+
+use super::components::{
+    BoardSizeButton, NetworkModeButton, PlayerCountButton, SoundSliderFill, SoundSliderKind,
+    SoundSliderTrack, SoundSliderValueText,
+};
+use super::styles::{
+    MENU_SELECTED, NORMAL_BUTTON, SLIDER_FILL, SLIDER_TRACK, VALUE_TEXT, button_bundle,
+    button_node, row_node, selected_button_color, text_bundle, white_text,
+};
+
+pub(super) fn spawn_choice_row(parent: &mut ChildSpawnerCommands, choices: &[i32], selected: i32) {
+    parent.spawn(row_node(8.0)).with_children(|row| {
+        for choice in choices {
+            row.spawn(button_bundle(
+                BoardSizeButton { radius: *choice },
+                button_node(72.0, 38.0, 1.0),
+                if *choice == selected {
+                    MENU_SELECTED
+                } else {
+                    NORMAL_BUTTON
+                },
+            ))
+            .with_children(|button| {
+                button.spawn(white_text(choice.to_string(), 18.0));
+            });
+        }
+    });
+}
+
+pub(super) fn spawn_player_row(
+    parent: &mut ChildSpawnerCommands,
+    choices: &[usize],
+    selected: usize,
+) {
+    parent.spawn(row_node(8.0)).with_children(|row| {
+        for choice in choices {
+            row.spawn(button_bundle(
+                PlayerCountButton {
+                    player_count: *choice,
+                },
+                button_node(72.0, 38.0, 1.0),
+                if *choice == selected {
+                    MENU_SELECTED
+                } else {
+                    NORMAL_BUTTON
+                },
+            ))
+            .with_children(|button| {
+                button.spawn(white_text(choice.to_string(), 18.0));
+            });
+        }
+    });
+}
+
+pub(super) fn spawn_network_mode_row(parent: &mut ChildSpawnerCommands, selected: NetMode) {
+    parent.spawn(row_node(8.0)).with_children(|row| {
+        for (label, mode) in [("Host", NetMode::Host), ("Client", NetMode::Client)] {
+            row.spawn(button_bundle(
+                NetworkModeButton { mode },
+                button_node(96.0, 38.0, 1.0),
+                selected_button_color(mode == selected, Interaction::None),
+            ))
+            .with_children(|button| {
+                button.spawn(white_text(label, 16.0));
+            });
+        }
+    });
+}
+
+pub(super) fn spawn_sound_slider_row(
+    parent: &mut ChildSpawnerCommands,
+    label: &str,
+    kind: SoundSliderKind,
+    value: f32,
+) {
+    let clamped = value.clamp(0.0, 1.0);
+    parent
+        .spawn(Node {
+            width: Val::Percent(100.0),
+            height: Val::Px(42.0),
+            justify_content: JustifyContent::SpaceBetween,
+            align_items: AlignItems::Center,
+            column_gap: Val::Px(16.0),
+            ..default()
+        })
+        .with_children(|row| {
+            row.spawn((
+                white_text(label, 16.0),
+                Node {
+                    width: Val::Px(120.0),
+                    ..default()
+                },
+            ));
+
+            row.spawn((
+                Button,
+                RelativeCursorPosition::default(),
+                SoundSliderTrack { kind },
+                Node {
+                    width: Val::Percent(100.0),
+                    max_width: Val::Px(300.0),
+                    height: Val::Px(22.0),
+                    border: UiRect::all(Val::Px(1.0)),
+                    justify_content: JustifyContent::FlexStart,
+                    align_items: AlignItems::Stretch,
+                    ..default()
+                },
+                BorderColor(Color::srgb(0.35, 0.35, 0.4)),
+                BackgroundColor(SLIDER_TRACK),
+            ))
+            .with_children(|track| {
+                track.spawn((
+                    SoundSliderFill { kind },
+                    Node {
+                        width: Val::Percent(clamped * 100.0),
+                        height: Val::Percent(100.0),
+                        ..default()
+                    },
+                    BackgroundColor(SLIDER_FILL),
+                ));
+            });
+
+            row.spawn((
+                SoundSliderValueText { kind },
+                text_bundle(
+                    format!("{:>3}%", (clamped * 100.0).round() as i32),
+                    16.0,
+                    VALUE_TEXT,
+                ),
+                Node {
+                    width: Val::Px(56.0),
+                    ..default()
+                },
+            ));
+        });
+}
