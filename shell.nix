@@ -20,6 +20,7 @@ in
       llvmPackages.bintools
       pkg-config
       rustup
+      ripgrep
       pkgs.alsa-lib.dev
       pkgs.systemd.dev
       pkgs.wayland.dev
