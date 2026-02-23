@@ -25,6 +25,7 @@ impl Plugin for UiPlugin {
                     start_menu::handle_network_connect_button,
                     start_menu::handle_network_address_focus,
                     start_menu::handle_network_address_typing,
+                    start_menu::sync_network_address_input_from_menu,
                     start_menu::handle_start_game_button,
                     start_menu::sync_menu_layout_visibility,
                     start_menu::sync_menu_button_visuals,

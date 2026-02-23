@@ -1,6 +1,5 @@
-use bevy::input::ButtonState;
-use bevy::input::keyboard::{Key, KeyboardInput};
 use bevy::prelude::*;
+use bevy_simple_text_input::{TextInput, TextInputInactive, TextInputValue};
 
 use crate::app_state::{AiStrategy, AppPhase, GameConfig, PlayerControl};
 use crate::network::{NetConfig, NetMode, NetRuntime};
@@ -9,7 +8,7 @@ use crate::settings::{self, AppSettings, LastNetMode};
 use super::components::{
     AiCooldownButton, AiPlayerCountButton, AiStrategyButton, BackToModeButton, BoardSizeButton,
     ConnectedPlayersText, LocalOnly, MenuScreen, MenuScreenModeSelect, MenuScreenSetup,
-    MenuSelection, ModeChoiceButton, NetworkAddressInputButton, NetworkAddressText,
+    MenuSelection, ModeChoiceButton, NetworkAddressInputButton, NetworkAddressInputField,
     NetworkConnectButton, NetworkModeButton, NetworkOnly, PlayerCountButton, StartGameButton,
     StartGameButtonLabel, StartGameMode, StartMenuRoot,
 };
@@ -183,12 +182,12 @@ pub(super) fn setup_start_menu(
                                         },
                                         NORMAL_BUTTON,
                                     ))
-                                    .with_children(|input| {
-                                        input.spawn((
-                                            NetworkAddressText,
-                                            white_text(menu.net_address.clone(), 16.0),
-                                        ));
-                                    });
+                                    .insert((
+                                        NetworkAddressInputField,
+                                        TextInput,
+                                        TextInputValue(menu.net_address.clone()),
+                                        TextInputInactive(true),
+                                    ));
                             });
 
                         step.spawn((NetworkOnly, Node::default()))
@@ -417,76 +416,73 @@ pub(super) fn handle_network_connect_button(
 }
 
 pub(super) fn handle_network_address_focus(
+    mouse_buttons: Res<ButtonInput<MouseButton>>,
     mut menu: ResMut<MenuSelection>,
     mut interactions: Query<
-        (&Interaction, &mut BackgroundColor),
-        (Changed<Interaction>, With<NetworkAddressInputButton>),
+        (&Interaction, &mut BackgroundColor, &mut TextInputInactive),
+        With<NetworkAddressInputButton>,
     >,
 ) {
     if menu.screen != MenuScreen::Setup || menu.game_mode != StartGameMode::Network {
         return;
     }
 
-    let mut clicked_input = false;
-    for (interaction, mut color) in &mut interactions {
-        match *interaction {
-            Interaction::Pressed => {
-                clicked_input = true;
-                *color = MENU_SELECTED.into();
-            }
-            Interaction::Hovered if !menu.address_focused => {
-                *color = neutral_button_color(Interaction::Hovered).into()
-            }
-            Interaction::None if !menu.address_focused => {
-                *color = neutral_button_color(Interaction::None).into()
-            }
-            _ => {}
+    for (interaction, mut color, mut inactive) in &mut interactions {
+        if mouse_buttons.just_pressed(MouseButton::Left) {
+            let focused = *interaction == Interaction::Pressed;
+            inactive.0 = !focused;
+            menu.address_focused = focused;
         }
-    }
 
-    if clicked_input {
-        menu.address_focused = true;
+        *color = if menu.address_focused {
+            MENU_SELECTED.into()
+        } else {
+            neutral_button_color(*interaction).into()
+        }
     }
 }
 
 pub(super) fn handle_network_address_typing(
     mut menu: ResMut<MenuSelection>,
-    mut key_events: EventReader<KeyboardInput>,
+    mut input_query: Query<
+        (&mut TextInputValue, &TextInputInactive),
+        With<NetworkAddressInputField>,
+    >,
 ) {
     if menu.screen != MenuScreen::Setup || menu.game_mode != StartGameMode::Network {
-        key_events.clear();
         return;
     }
 
-    if !menu.address_focused {
-        key_events.clear();
+    let Ok((mut value, inactive)) = input_query.single_mut() else {
+        return;
+    };
+
+    let is_active = !inactive.0;
+    if menu.address_focused != is_active {
+        menu.address_focused = is_active;
+    }
+
+    let sanitized = sanitize_address(value.0.as_str());
+    if value.0 != sanitized {
+        value.0 = sanitized.clone();
+    }
+    if menu.net_address != sanitized {
+        menu.net_address = sanitized;
+    }
+}
+
+pub(super) fn sync_network_address_input_from_menu(
+    menu: Res<MenuSelection>,
+    mut input_query: Query<&mut TextInputValue, With<NetworkAddressInputField>>,
+) {
+    if !menu.is_changed() {
         return;
     }
 
-    for event in key_events.read() {
-        if event.state != ButtonState::Pressed {
-            continue;
-        }
-
-        match event.key_code {
-            KeyCode::Backspace => {
-                menu.net_address.pop();
-                continue;
-            }
-            KeyCode::Enter | KeyCode::NumpadEnter | KeyCode::Escape => {
-                menu.address_focused = false;
-                continue;
-            }
-            _ => {}
-        }
-
-        if let Key::Character(text) = &event.logical_key {
-            for ch in text.chars() {
-                if is_valid_address_char(ch) && menu.net_address.len() < 80 {
-                    menu.net_address.push(ch);
-                }
-            }
-        }
+    if let Ok(mut value) = input_query.single_mut()
+        && value.0 != menu.net_address
+    {
+        value.0 = menu.net_address.clone();
     }
 }
 
@@ -554,7 +550,6 @@ pub(super) fn sync_menu_button_visuals(
         With<Button>,
     >,
     mut menu_texts: Query<(
-        Option<&NetworkAddressText>,
         Option<&ConnectedPlayersText>,
         Option<&StartGameButtonLabel>,
         &mut Text,
@@ -595,21 +590,8 @@ pub(super) fn sync_menu_button_visuals(
         };
     }
 
-    for (address_text, connected_text, start_text, mut text) in &mut menu_texts {
-        if address_text.is_some() {
-            let mut label = menu.net_address.clone();
-            if menu.address_focused {
-                label.push('_');
-            }
-            if menu.net_mode == NetMode::Client {
-                label.push_str(if net_runtime.connected {
-                    "  (connected)"
-                } else {
-                    "  (not connected)"
-                });
-            }
-            *text = Text::new(label);
-        } else if connected_text.is_some() {
+    for (connected_text, start_text, mut text) in &mut menu_texts {
+        if connected_text.is_some() {
             *text = Text::new(connected_players_label(
                 menu.game_mode,
                 menu.net_mode,
@@ -724,6 +706,19 @@ fn connected_players_label(game_mode: StartGameMode, net_mode: NetMode, connecte
 
 fn is_valid_address_char(ch: char) -> bool {
     ch.is_ascii_alphanumeric() || matches!(ch, '.' | ':' | '-')
+}
+
+fn sanitize_address(raw: &str) -> String {
+    let filtered: String = raw
+        .chars()
+        .filter(|ch| is_valid_address_char(*ch))
+        .collect();
+    let trimmed = filtered.trim();
+    if trimmed.is_empty() {
+        String::new()
+    } else {
+        trimmed.chars().take(80).collect()
+    }
 }
 
 fn nearest_ai_cooldown_ms(cooldown_seconds: f32) -> u32 {

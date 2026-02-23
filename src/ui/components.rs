@@ -98,7 +98,7 @@ pub(super) struct NetworkModeButton {
 pub(super) struct NetworkAddressInputButton;
 
 #[derive(Component)]
-pub(super) struct NetworkAddressText;
+pub(super) struct NetworkAddressInputField;
 
 #[derive(Component)]
 pub(super) struct NetworkConnectButton;

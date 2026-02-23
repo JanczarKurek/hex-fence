@@ -34,3 +34,4 @@
 
 ## Configuration Notes
 - Rust toolchain is pinned via `rust-toolchain.toml`; match it when running CI or local builds.
+- If a new crate is needed but the environment cannot download dependencies, update `Cargo.toml` first and ask the user to run a rebuild (`cargo build`/`cargo check`) so Cargo can fetch the crate. Continue implementation after the rebuild succeeds.

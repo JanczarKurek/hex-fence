@@ -11,6 +11,7 @@ use app_state::{AppPhase, GameConfig, RematchRequested, StartRematch};
 use bevy::prelude::*;
 use bevy::window::PresentMode;
 use bevy::winit::{UpdateMode, WinitSettings};
+use bevy_simple_text_input::TextInputPlugin;
 use core::time::Duration;
 
 fn main() {
@@ -32,6 +33,7 @@ fn main() {
             }),
             ..default()
         }))
+        .add_plugins(TextInputPlugin)
         .init_state::<AppPhase>()
         .add_plugins((
             board::BoardPlugin,
