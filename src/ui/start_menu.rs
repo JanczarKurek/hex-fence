@@ -2,22 +2,27 @@ use bevy::input::ButtonState;
 use bevy::input::keyboard::{Key, KeyboardInput};
 use bevy::prelude::*;
 
-use crate::app_state::{AppPhase, GameConfig};
+use crate::app_state::{AiStrategy, AppPhase, GameConfig, PlayerControl};
 use crate::network::{NetConfig, NetMode, NetRuntime};
 
 use super::components::{
-    BackToModeButton, BoardSizeButton, ConnectedPlayersText, LocalOnly, MenuScreen,
-    MenuScreenModeSelect, MenuScreenSetup, MenuSelection, ModeChoiceButton,
-    NetworkAddressInputButton, NetworkAddressText, NetworkConnectButton, NetworkModeButton,
-    NetworkOnly, PlayerCountButton, StartGameButton, StartGameButtonLabel, StartGameMode,
-    StartMenuRoot,
+    AiCooldownButton, AiPlayerCountButton, AiStrategyButton, BackToModeButton, BoardSizeButton,
+    ConnectedPlayersText, LocalOnly, MenuScreen, MenuScreenModeSelect, MenuScreenSetup,
+    MenuSelection, ModeChoiceButton, NetworkAddressInputButton, NetworkAddressText,
+    NetworkConnectButton, NetworkModeButton, NetworkOnly, PlayerCountButton, StartGameButton,
+    StartGameButtonLabel, StartGameMode, StartMenuRoot,
 };
 use super::styles::{
     HOVERED_BUTTON, MENU_PANEL_BG, MENU_SELECTED, MENU_START, NORMAL_BUTTON, PRESSED_BUTTON,
     button_bundle, button_node, menu_text, neutral_button_color, row_node, selected_button_color,
     white_text,
 };
-use super::widgets::{spawn_choice_row, spawn_network_mode_row, spawn_player_row};
+use super::widgets::{
+    spawn_ai_cooldown_row, spawn_ai_player_row, spawn_ai_strategy_row, spawn_choice_row,
+    spawn_network_mode_row, spawn_player_row,
+};
+
+const AI_COOLDOWN_CHOICES_MS: [u32; 5] = [250, 500, 1_000, 1_500, 2_000];
 
 pub(super) fn setup_start_menu(
     mut commands: Commands,
@@ -33,6 +38,14 @@ pub(super) fn setup_start_menu(
     };
     menu.board_radius = game_config.board_radius;
     menu.player_count = game_config.player_count;
+    menu.ai_player_count = game_config
+        .player_controls
+        .iter()
+        .take(game_config.player_count)
+        .filter(|control| control.is_ai())
+        .count();
+    menu.ai_cooldown_ms = nearest_ai_cooldown_ms(game_config.ai_cooldown_seconds);
+    menu.ai_strategy = game_config.ai_strategy;
     menu.net_mode = net_config.mode;
     menu.net_address = net_config.address.clone();
     menu.address_focused = false;
@@ -129,6 +142,21 @@ pub(super) fn setup_start_menu(
                         step.spawn((LocalOnly, Node::default()))
                             .with_children(|local| {
                                 spawn_player_row(local, &[2, 3, 6], menu.player_count);
+                            });
+                        step.spawn((LocalOnly, menu_text("AI Players", 20.0)));
+                        step.spawn((LocalOnly, Node::default()))
+                            .with_children(|local| {
+                                spawn_ai_player_row(local, menu.ai_player_count);
+                            });
+                        step.spawn((LocalOnly, menu_text("AI Cooldown", 20.0)));
+                        step.spawn((LocalOnly, Node::default()))
+                            .with_children(|local| {
+                                spawn_ai_cooldown_row(local, menu.ai_cooldown_ms);
+                            });
+                        step.spawn((LocalOnly, menu_text("AI Type", 20.0)));
+                        step.spawn((LocalOnly, Node::default()))
+                            .with_children(|local| {
+                                spawn_ai_strategy_row(local, menu.ai_strategy);
                             });
 
                         step.spawn((NetworkOnly, menu_text("Role", 20.0)));
@@ -271,6 +299,39 @@ pub(super) fn handle_menu_option_buttons(
             Without<BoardSizeButton>,
         ),
     >,
+    mut ai_player_buttons: Query<
+        (&Interaction, &AiPlayerCountButton),
+        (
+            Changed<Interaction>,
+            With<Button>,
+            With<AiPlayerCountButton>,
+            Without<BoardSizeButton>,
+            Without<PlayerCountButton>,
+        ),
+    >,
+    mut ai_cooldown_buttons: Query<
+        (&Interaction, &AiCooldownButton),
+        (
+            Changed<Interaction>,
+            With<Button>,
+            With<AiCooldownButton>,
+            Without<BoardSizeButton>,
+            Without<PlayerCountButton>,
+            Without<AiPlayerCountButton>,
+        ),
+    >,
+    mut ai_strategy_buttons: Query<
+        (&Interaction, &AiStrategyButton),
+        (
+            Changed<Interaction>,
+            With<Button>,
+            With<AiStrategyButton>,
+            Without<BoardSizeButton>,
+            Without<PlayerCountButton>,
+            Without<AiPlayerCountButton>,
+            Without<AiCooldownButton>,
+        ),
+    >,
     mut network_mode_buttons: Query<
         (&Interaction, &NetworkModeButton),
         (
@@ -295,6 +356,25 @@ pub(super) fn handle_menu_option_buttons(
     for (interaction, button) in &mut player_buttons {
         if *interaction == Interaction::Pressed {
             menu.player_count = button.player_count;
+            menu.ai_player_count = menu.ai_player_count.min(menu.player_count);
+        }
+    }
+
+    for (interaction, button) in &mut ai_player_buttons {
+        if *interaction == Interaction::Pressed && button.ai_player_count <= menu.player_count {
+            menu.ai_player_count = button.ai_player_count;
+        }
+    }
+
+    for (interaction, button) in &mut ai_cooldown_buttons {
+        if *interaction == Interaction::Pressed {
+            menu.ai_cooldown_ms = button.cooldown_ms;
+        }
+    }
+
+    for (interaction, button) in &mut ai_strategy_buttons {
+        if *interaction == Interaction::Pressed {
+            menu.ai_strategy = button.strategy;
         }
     }
 
@@ -460,6 +540,9 @@ pub(super) fn sync_menu_button_visuals(
             &Interaction,
             Option<&BoardSizeButton>,
             Option<&PlayerCountButton>,
+            Option<&AiPlayerCountButton>,
+            Option<&AiCooldownButton>,
+            Option<&AiStrategyButton>,
             Option<&ModeChoiceButton>,
             Option<&NetworkModeButton>,
             Option<&NetworkAddressInputButton>,
@@ -474,13 +557,30 @@ pub(super) fn sync_menu_button_visuals(
         &mut Text,
     )>,
 ) {
-    for (interaction, board, player, mode_choice, network_mode, address_input, mut color) in
-        &mut option_buttons
+    for (
+        interaction,
+        board,
+        player,
+        ai_player,
+        ai_cooldown,
+        ai_strategy,
+        mode_choice,
+        network_mode,
+        address_input,
+        mut color,
+    ) in &mut option_buttons
     {
         *color = if let Some(button) = board {
             selected_button_color(button.radius == menu.board_radius, *interaction).into()
         } else if let Some(button) = player {
             selected_button_color(button.player_count == menu.player_count, *interaction).into()
+        } else if let Some(button) = ai_player {
+            selected_button_color(button.ai_player_count == menu.ai_player_count, *interaction)
+                .into()
+        } else if let Some(button) = ai_cooldown {
+            selected_button_color(button.cooldown_ms == menu.ai_cooldown_ms, *interaction).into()
+        } else if let Some(button) = ai_strategy {
+            selected_button_color(button.strategy == menu.ai_strategy, *interaction).into()
         } else if let Some(button) = mode_choice {
             selected_button_color(button.mode == menu.game_mode, *interaction).into()
         } else if let Some(button) = network_mode {
@@ -564,6 +664,18 @@ pub(super) fn handle_start_game_button(
                 } else {
                     menu.player_count
                 };
+                game_config.ai_cooldown_seconds = menu.ai_cooldown_ms as f32 / 1_000.0;
+                game_config.ai_strategy = if menu.game_mode == StartGameMode::Local {
+                    menu.ai_strategy
+                } else {
+                    AiStrategy::Heuristic
+                };
+                game_config.player_controls = [PlayerControl::Human; 6];
+                if menu.game_mode == StartGameMode::Local {
+                    for player_index in 0..menu.ai_player_count {
+                        game_config.player_controls[player_index] = PlayerControl::RandomAi;
+                    }
+                }
                 next_phase.set(AppPhase::InGame);
                 *color = PRESSED_BUTTON.into();
             }
@@ -601,4 +713,20 @@ fn connected_players_label(game_mode: StartGameMode, net_mode: NetMode, connecte
 
 fn is_valid_address_char(ch: char) -> bool {
     ch.is_ascii_alphanumeric() || matches!(ch, '.' | ':' | '-')
+}
+
+fn nearest_ai_cooldown_ms(cooldown_seconds: f32) -> u32 {
+    let target_ms = (cooldown_seconds.max(0.0) * 1_000.0).round() as i64;
+    let mut best = AI_COOLDOWN_CHOICES_MS[0];
+    let mut best_distance = (best as i64 - target_ms).abs();
+
+    for choice in AI_COOLDOWN_CHOICES_MS {
+        let distance = (choice as i64 - target_ms).abs();
+        if distance < best_distance {
+            best = choice;
+            best_distance = distance;
+        }
+    }
+
+    best
 }

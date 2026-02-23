@@ -17,3 +17,8 @@
 - There should be controls help explaining what the shortcuts are
 - There should be a sidepanel for selecting mode / type of fence together with fence counters.
 - Game should alert player when other player makes move (wayland has some mechanism for that?)
+
+## Done recently
+- Added local AI players support with a basic random-legal-move bot.
+- Upgraded AI with path-based heuristics and defensive fence placement.
+- Added selectable AI type (Heuristic / Alpha-Beta) in game setup.

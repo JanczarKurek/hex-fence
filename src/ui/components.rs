@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 
+use crate::app_state::AiStrategy;
 use crate::network::NetMode;
 use crate::settings::AppSettings;
 
@@ -9,6 +10,9 @@ pub(super) struct MenuSelection {
     pub(super) game_mode: StartGameMode,
     pub(super) board_radius: i32,
     pub(super) player_count: usize,
+    pub(super) ai_player_count: usize,
+    pub(super) ai_cooldown_ms: u32,
+    pub(super) ai_strategy: AiStrategy,
     pub(super) net_mode: NetMode,
     pub(super) net_address: String,
     pub(super) address_focused: bool,
@@ -21,6 +25,9 @@ impl Default for MenuSelection {
             game_mode: StartGameMode::Local,
             board_radius: 4,
             player_count: 3,
+            ai_player_count: 0,
+            ai_cooldown_ms: 1_000,
+            ai_strategy: AiStrategy::Heuristic,
             net_mode: NetMode::Local,
             net_address: "127.0.0.1:4000".to_string(),
             address_focused: false,
@@ -45,6 +52,21 @@ pub(super) struct BoardSizeButton {
 #[derive(Component)]
 pub(super) struct PlayerCountButton {
     pub(super) player_count: usize,
+}
+
+#[derive(Component)]
+pub(super) struct AiPlayerCountButton {
+    pub(super) ai_player_count: usize,
+}
+
+#[derive(Component)]
+pub(super) struct AiCooldownButton {
+    pub(super) cooldown_ms: u32,
+}
+
+#[derive(Component)]
+pub(super) struct AiStrategyButton {
+    pub(super) strategy: AiStrategy,
 }
 
 #[derive(Component)]

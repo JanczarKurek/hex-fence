@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 
+use crate::app_state::GameConfig;
 use crate::camera::MainCamera;
 use crate::hex_grid::AxialCoord;
 use crate::network::{NetConfig, NetRuntime};
@@ -17,6 +18,7 @@ pub fn move_current_pawn_on_click(
     windows: Query<&Window, With<PrimaryWindow>>,
     camera_query: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
     turn_state: Res<TurnState>,
+    game_config: Res<GameConfig>,
     net_config: Res<NetConfig>,
     net_runtime: Res<NetRuntime>,
     mut selection: ResMut<PawnSelection>,
@@ -36,6 +38,13 @@ pub fn move_current_pawn_on_click(
     }
 
     if !net_runtime.can_control_player(&net_config, turn_state.current_player) {
+        return;
+    }
+
+    if game_config
+        .player_control(turn_state.current_player)
+        .is_ai()
+    {
         return;
     }
 

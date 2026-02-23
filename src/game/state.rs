@@ -23,7 +23,7 @@ impl EdgeKey {
     }
 }
 
-#[derive(Resource)]
+#[derive(Resource, Clone)]
 pub struct TurnState {
     pub board_radius: i32,
     pub players: Vec<PlayerDef>,

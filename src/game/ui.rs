@@ -1,5 +1,7 @@
 use bevy::prelude::*;
 
+use crate::app_state::{AiStrategy, GameConfig};
+
 use super::components::TurnIndicator;
 use super::fence::{FencePlacementState, FenceShape};
 use super::state::TurnState;
@@ -20,6 +22,7 @@ pub fn setup_turn_indicator(mut commands: Commands) {
 }
 
 pub fn update_turn_indicator(
+    game_config: Res<GameConfig>,
     turn_state: Res<TurnState>,
     fence_placement: Res<FencePlacementState>,
     mut indicator_query: Query<(&mut Text, &mut TextColor), With<TurnIndicator>>,
@@ -37,6 +40,16 @@ pub fn update_turn_indicator(
         *text_color = TextColor(turn_state.players[winner].pawn_color);
     } else {
         let fences_left = turn_state.fences_left[turn_state.current_player];
+        let current_control = game_config.player_control(turn_state.current_player);
+        let control_suffix = if current_control.is_ai() {
+            match game_config.ai_strategy {
+                AiStrategy::Heuristic => " [AI:H]",
+                AiStrategy::AlphaBeta => " [AI:AB]",
+            }
+        } else {
+            ""
+        };
+        let current_player_label = format!("{}{}", turn_state.current_player + 1, control_suffix);
         let mode = if fence_placement.enabled {
             format!(
                 "Fence ({}, rot {})",
@@ -48,9 +61,7 @@ pub fn update_turn_indicator(
         };
         *text = Text::new(format!(
             "Current player: {} | Mode: {} | Fences left: {}",
-            turn_state.current_player + 1,
-            mode,
-            fences_left
+            current_player_label, mode, fences_left
         ));
         *text_color = TextColor(turn_state.players[turn_state.current_player].pawn_color);
     }

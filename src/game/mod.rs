@@ -1,4 +1,5 @@
 pub mod actions;
+mod ai;
 pub mod audio;
 mod components;
 mod fence;
@@ -15,6 +16,7 @@ mod ui;
 use crate::app_state::AppPhase;
 use bevy::prelude::*;
 
+use ai::{AiRng, AiTurnCooldown};
 use fence::FencePlacementState;
 use selection::PawnSelection;
 use state::TurnState;
@@ -26,6 +28,8 @@ impl Plugin for GamePlugin {
         app.insert_resource(TurnState::default())
             .insert_resource(PawnSelection::default())
             .insert_resource(FencePlacementState::default())
+            .insert_resource(AiRng::default())
+            .insert_resource(AiTurnCooldown::default())
             .init_resource::<audio::GameAudioAssets>()
             .add_event::<actions::GameActionRequest>()
             .add_event::<actions::GameActionApplied>()
@@ -46,6 +50,7 @@ impl Plugin for GamePlugin {
                 Update,
                 (
                     (
+                        ai::random_ai_take_turn,
                         input::move_current_pawn_on_click,
                         actions::apply_game_action_requests,
                         fence::update_fence_preview,
