@@ -9,6 +9,7 @@ use bevy::prelude::*;
 use crate::app_state::{AppPhase, GameConfig, RematchRequested, StartRematch};
 use crate::game::actions::{ActionSource, GameActionApplied, GameActionRequest};
 use crate::game::state::GameAction;
+use crate::settings::{AppSettings, LastNetMode};
 
 pub struct NetworkPlugin;
 
@@ -16,7 +17,10 @@ impl Plugin for NetworkPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(NetConfig::from_env())
             .insert_resource(NetRuntime::default())
-            .add_systems(Startup, mark_local_connected_if_needed)
+            .add_systems(
+                Startup,
+                (apply_saved_network_settings, mark_local_connected_if_needed).chain(),
+            )
             .add_systems(
                 Update,
                 (
@@ -111,6 +115,19 @@ fn mark_local_connected_if_needed(net_config: Res<NetConfig>, mut runtime: ResMu
         runtime.connected = true;
         runtime.active_config = Some(net_config.clone());
     }
+}
+
+fn apply_saved_network_settings(app_settings: Res<AppSettings>, mut net_config: ResMut<NetConfig>) {
+    if has_env_network_override() {
+        return;
+    }
+
+    net_config.mode = match app_settings.network.mode {
+        LastNetMode::Host => NetMode::Host,
+        LastNetMode::Client => NetMode::Client,
+    };
+    net_config.address = app_settings.network.address.clone();
+    net_config.local_player_index = app_settings.network.local_player_index;
 }
 
 fn reconfigure_network_runtime(net_config: Res<NetConfig>, mut runtime: ResMut<NetRuntime>) {
@@ -364,4 +381,10 @@ fn send_start_game_from_host_on_enter(
         let _ = outgoing.send(NetMessage::StartGame(*game_config));
         runtime.start_sent = true;
     }
+}
+
+fn has_env_network_override() -> bool {
+    std::env::var_os("GIERECZKA_NET_MODE").is_some()
+        || std::env::var_os("GIERECZKA_NET_ADDR").is_some()
+        || std::env::var_os("GIERECZKA_NET_LOCAL_PLAYER").is_some()
 }

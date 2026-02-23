@@ -4,6 +4,7 @@ use bevy::prelude::*;
 
 use crate::app_state::{AiStrategy, AppPhase, GameConfig, PlayerControl};
 use crate::network::{NetConfig, NetMode, NetRuntime};
+use crate::settings::{self, AppSettings, LastNetMode};
 
 use super::components::{
     AiCooldownButton, AiPlayerCountButton, AiStrategyButton, BackToModeButton, BoardSizeButton,
@@ -388,6 +389,7 @@ pub(super) fn handle_menu_option_buttons(
 pub(super) fn handle_network_connect_button(
     menu: Res<MenuSelection>,
     mut net_config: ResMut<NetConfig>,
+    mut app_settings: ResMut<AppSettings>,
     mut interactions: Query<
         (&Interaction, &mut BackgroundColor),
         (Changed<Interaction>, With<NetworkConnectButton>),
@@ -408,6 +410,7 @@ pub(super) fn handle_network_connect_button(
             } else {
                 trimmed.to_string()
             };
+            save_last_network_settings(&mut app_settings, menu.net_mode, &net_config.address);
         }
         *color = neutral_button_color(interaction).into();
     }
@@ -628,6 +631,7 @@ pub(super) fn handle_start_game_button(
     menu: Res<MenuSelection>,
     mut net_config: ResMut<NetConfig>,
     mut game_config: ResMut<GameConfig>,
+    mut app_settings: ResMut<AppSettings>,
     mut interactions: Query<
         (&Interaction, &mut BackgroundColor),
         (Changed<Interaction>, With<StartGameButton>),
@@ -658,6 +662,13 @@ pub(super) fn handle_start_game_button(
                 } else {
                     trimmed.to_string()
                 };
+                if menu.game_mode == StartGameMode::Network {
+                    save_last_network_settings(
+                        &mut app_settings,
+                        menu.net_mode,
+                        &net_config.address,
+                    );
+                }
                 game_config.board_radius = menu.board_radius;
                 game_config.player_count = if menu.game_mode == StartGameMode::Network {
                     2
@@ -729,4 +740,17 @@ fn nearest_ai_cooldown_ms(cooldown_seconds: f32) -> u32 {
     }
 
     best
+}
+
+fn save_last_network_settings(app_settings: &mut AppSettings, mode: NetMode, address: &str) {
+    let mapped_mode = match mode {
+        NetMode::Host => LastNetMode::Host,
+        NetMode::Client => LastNetMode::Client,
+        NetMode::Local => return,
+    };
+
+    app_settings.network.mode = mapped_mode;
+    app_settings.network.address = address.to_string();
+    app_settings.network.local_player_index = local_player_index_for_mode(mode);
+    let _ = settings::save_settings_to_disk(app_settings.clone());
 }

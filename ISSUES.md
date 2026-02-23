@@ -12,7 +12,6 @@
 - Fences have empty spots on the joints
 
 ## UI/UX
-- Last network settings should be stored in appropriate XDG directory
 - There should be controls help explaining what the shortcuts are
 - There should be a sidepanel for selecting mode / type of fence together with fence counters.
 - Game should alert player when other player makes move (wayland has some mechanism for that?)
@@ -28,3 +27,4 @@
 - Added frame limiting (focused ~60 FPS, lower idle when unfocused).
 - Added in-game quit `X` button and post-win rematch button (local and network).
 - Changed in-game `X` to return to main menu and added cleanup on leaving match.
+- Migrated settings to XDG config path and persisted last used network config.

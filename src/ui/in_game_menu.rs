@@ -207,7 +207,11 @@ pub(super) fn cleanup_in_game_ui(
     mut commands: Commands,
     roots: Query<Entity, With<InGameUiRoot>>,
     mut settings_ui: ResMut<SettingsUiState>,
+    app_settings: Res<AppSettings>,
 ) {
+    if settings_ui.open {
+        let _ = settings::save_settings_to_disk(app_settings.clone());
+    }
     for entity in &roots {
         commands.entity(entity).despawn();
     }
@@ -228,7 +232,7 @@ pub(super) fn handle_settings_toggle_button(
             let was_open = settings_ui.open;
             settings_ui.open = !settings_ui.open;
             if was_open && !settings_ui.open {
-                let _ = settings::save_settings_to_disk(*app_settings);
+                let _ = settings::save_settings_to_disk(app_settings.clone());
             }
         }
         *color = neutral_button_color(interaction).into();
@@ -323,6 +327,7 @@ pub(super) fn handle_sound_slider_input(
     mut app_settings: ResMut<AppSettings>,
     track_query: Query<(&Interaction, &RelativeCursorPosition, &SoundSliderTrack), With<Button>>,
 ) {
+    let mut changed = false;
     for (interaction, cursor_pos, slider) in &track_query {
         if *interaction != Interaction::Pressed {
             continue;
@@ -333,6 +338,11 @@ pub(super) fn handle_sound_slider_input(
         };
 
         slider.kind.set_value(&mut app_settings, normalized.x);
+        changed = true;
+    }
+
+    if changed {
+        let _ = settings::save_settings_to_disk(app_settings.clone());
     }
 }
 
