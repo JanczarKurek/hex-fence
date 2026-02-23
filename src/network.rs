@@ -6,7 +6,7 @@ use std::thread;
 
 use bevy::prelude::*;
 
-use crate::app_state::{AppPhase, GameConfig};
+use crate::app_state::{AppPhase, GameConfig, RematchRequested, StartRematch};
 use crate::game::actions::{ActionSource, GameActionApplied, GameActionRequest};
 use crate::game::state::GameAction;
 
@@ -21,6 +21,7 @@ impl Plugin for NetworkPlugin {
                 Update,
                 (
                     reconfigure_network_runtime,
+                    handle_rematch_requests,
                     poll_network_events,
                     send_local_actions_over_network,
                     send_start_game_from_host_on_enter,
@@ -95,6 +96,7 @@ impl NetRuntime {
 enum NetMessage {
     StartGame(GameConfig),
     Action(GameAction),
+    RematchRequest,
 }
 
 #[derive(Debug)]
@@ -218,7 +220,9 @@ fn poll_network_events(
     mut runtime: ResMut<NetRuntime>,
     net_config: Res<NetConfig>,
     mut game_config: ResMut<GameConfig>,
+    phase: Res<State<AppPhase>>,
     mut next_phase: ResMut<NextState<AppPhase>>,
+    mut rematch_events: EventWriter<StartRematch>,
     mut action_requests: EventWriter<GameActionRequest>,
 ) {
     let Some(incoming) = &runtime.incoming else {
@@ -252,7 +256,22 @@ fn poll_network_events(
             NetEvent::Message(NetMessage::StartGame(config)) => {
                 if matches!(net_config.mode, NetMode::Client) {
                     *game_config = config;
-                    next_phase.set(AppPhase::InGame);
+                    if *phase.get() == AppPhase::InGame {
+                        rematch_events.write(StartRematch);
+                    } else {
+                        next_phase.set(AppPhase::InGame);
+                    }
+                }
+            }
+            NetEvent::Message(NetMessage::RematchRequest) => {
+                if matches!(net_config.mode, NetMode::Host)
+                    && *phase.get() == AppPhase::InGame
+                    && runtime.connected
+                {
+                    if let Some(outgoing) = &runtime.outgoing {
+                        let _ = outgoing.send(NetMessage::StartGame(*game_config));
+                    }
+                    rematch_events.write(StartRematch);
                 }
             }
             NetEvent::Message(NetMessage::Action(action)) => {
@@ -260,6 +279,45 @@ fn poll_network_events(
                     source: ActionSource::Remote,
                     action,
                 });
+            }
+        }
+    }
+}
+
+fn handle_rematch_requests(
+    net_config: Res<NetConfig>,
+    runtime: Res<NetRuntime>,
+    game_config: Res<GameConfig>,
+    mut requests: EventReader<RematchRequested>,
+    mut rematch_events: EventWriter<StartRematch>,
+) {
+    let mut requested = false;
+    for _ in requests.read() {
+        requested = true;
+    }
+    if !requested {
+        return;
+    }
+
+    match net_config.mode {
+        NetMode::Local => {
+            rematch_events.write(StartRematch);
+        }
+        NetMode::Host => {
+            if !runtime.connected {
+                return;
+            }
+            if let Some(outgoing) = &runtime.outgoing {
+                let _ = outgoing.send(NetMessage::StartGame(*game_config));
+            }
+            rematch_events.write(StartRematch);
+        }
+        NetMode::Client => {
+            if !runtime.connected {
+                return;
+            }
+            if let Some(outgoing) = &runtime.outgoing {
+                let _ = outgoing.send(NetMessage::RematchRequest);
             }
         }
     }

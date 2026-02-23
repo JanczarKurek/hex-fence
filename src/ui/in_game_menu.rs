@@ -1,13 +1,14 @@
-use bevy::app::AppExit;
 use bevy::prelude::*;
 use bevy::ui::RelativeCursorPosition;
 
+use crate::app_state::{AppPhase, RematchRequested};
+use crate::game::state::TurnState;
 use crate::settings::{self, AppSettings};
 
 use super::components::{
-    ExitButton, SettingsPopup, SettingsTab, SettingsTabButton, SettingsTabContent,
-    SettingsToggleButton, SettingsUiState, SoundSliderFill, SoundSliderKind, SoundSliderTrack,
-    SoundSliderValueText,
+    ExitButton, InGameUiRoot, RematchButton, RematchPanel, SettingsPopup, SettingsTab,
+    SettingsTabButton, SettingsTabContent, SettingsToggleButton, SettingsUiState, SoundSliderFill,
+    SoundSliderKind, SoundSliderTrack, SoundSliderValueText,
 };
 use super::styles::{
     NORMAL_BUTTON, PANEL_BG, TAB_ACTIVE, TAB_INACTIVE, button_bundle, button_node,
@@ -21,11 +22,14 @@ pub(super) fn setup_in_game_ui(
     settings_ui: Res<SettingsUiState>,
 ) {
     commands
-        .spawn(Node {
-            width: Val::Percent(100.0),
-            height: Val::Percent(100.0),
-            ..default()
-        })
+        .spawn((
+            InGameUiRoot,
+            Node {
+                width: Val::Percent(100.0),
+                height: Val::Percent(100.0),
+                ..default()
+            },
+        ))
         .with_children(|parent| {
             parent
                 .spawn(Node {
@@ -52,11 +56,37 @@ pub(super) fn setup_in_game_ui(
                     top_buttons
                         .spawn(button_bundle(
                             ExitButton,
-                            button_node(120.0, 44.0, 2.0),
+                            button_node(44.0, 44.0, 2.0),
                             NORMAL_BUTTON,
                         ))
                         .with_children(|button| {
-                            button.spawn(white_text("Exit", 18.0));
+                            button.spawn(white_text("X", 22.0));
+                        });
+                });
+
+            parent
+                .spawn((
+                    RematchPanel,
+                    Node {
+                        width: Val::Auto,
+                        height: Val::Auto,
+                        position_type: PositionType::Absolute,
+                        left: Val::Percent(50.0),
+                        top: Val::Percent(50.0),
+                        display: Display::None,
+                        ..default()
+                    },
+                    Transform::from_translation(Vec3::new(-120.0, -24.0, 0.0)),
+                ))
+                .with_children(|panel| {
+                    panel
+                        .spawn(button_bundle(
+                            RematchButton,
+                            button_node(240.0, 48.0, 2.0),
+                            NORMAL_BUTTON,
+                        ))
+                        .with_children(|button| {
+                            button.spawn(white_text("Rematch", 22.0));
                         });
                 });
 
@@ -162,15 +192,26 @@ pub(super) fn handle_exit_button(
         (&Interaction, &mut BackgroundColor),
         (Changed<Interaction>, With<ExitButton>),
     >,
-    mut exit_events: EventWriter<AppExit>,
+    mut next_phase: ResMut<NextState<AppPhase>>,
 ) {
     for (interaction, mut color) in &mut interaction_query {
         let interaction = *interaction;
         if interaction == Interaction::Pressed {
-            exit_events.write(AppExit::Success);
+            next_phase.set(AppPhase::Menu);
         }
         *color = neutral_button_color(interaction).into();
     }
+}
+
+pub(super) fn cleanup_in_game_ui(
+    mut commands: Commands,
+    roots: Query<Entity, With<InGameUiRoot>>,
+    mut settings_ui: ResMut<SettingsUiState>,
+) {
+    for entity in &roots {
+        commands.entity(entity).despawn();
+    }
+    settings_ui.open = false;
 }
 
 pub(super) fn handle_settings_toggle_button(
@@ -191,6 +232,41 @@ pub(super) fn handle_settings_toggle_button(
             }
         }
         *color = neutral_button_color(interaction).into();
+    }
+}
+
+pub(super) fn handle_rematch_button(
+    mut interaction_query: Query<
+        (&Interaction, &mut BackgroundColor),
+        (Changed<Interaction>, With<RematchButton>),
+    >,
+    mut rematch_requests: EventWriter<RematchRequested>,
+) {
+    for (interaction, mut color) in &mut interaction_query {
+        let interaction = *interaction;
+        if interaction == Interaction::Pressed {
+            rematch_requests.write(RematchRequested);
+        }
+        *color = neutral_button_color(interaction).into();
+    }
+}
+
+pub(super) fn sync_rematch_visibility(
+    turn_state: Res<TurnState>,
+    mut panels: Query<&mut Node, With<RematchPanel>>,
+) {
+    if !turn_state.is_changed() {
+        return;
+    }
+
+    let display = if turn_state.winner.is_some() {
+        Display::Flex
+    } else {
+        Display::None
+    };
+
+    for mut panel in &mut panels {
+        panel.display = display;
     }
 }
 

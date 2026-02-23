@@ -8,11 +8,11 @@ use crate::hex_grid::TILE_RADIUS;
 use super::components::Pawn;
 use super::state::TurnState;
 
-pub fn spawn_pawns(
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<ColorMaterial>>,
-    turn_state: Res<TurnState>,
+pub fn spawn_pawn_entities(
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<ColorMaterial>,
+    turn_state: &TurnState,
 ) {
     let pawn_mesh = meshes.add(RegularPolygon::new(TILE_RADIUS * 0.45, 24));
 
@@ -29,4 +29,13 @@ pub fn spawn_pawns(
             Transform::from_xyz(world.x, world.y, 2.0),
         ));
     }
+}
+
+pub fn spawn_pawns(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+    turn_state: Res<TurnState>,
+) {
+    spawn_pawn_entities(&mut commands, &mut meshes, &mut materials, &turn_state);
 }

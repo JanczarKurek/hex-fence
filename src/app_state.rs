@@ -8,6 +8,12 @@ pub enum AppPhase {
     InGame,
 }
 
+#[derive(Event, Debug, Clone, Copy, Default)]
+pub struct RematchRequested;
+
+#[derive(Event, Debug, Clone, Copy, Default)]
+pub struct StartRematch;
+
 #[derive(Resource, Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct GameConfig {
     pub board_radius: i32,

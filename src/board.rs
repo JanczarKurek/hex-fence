@@ -8,9 +8,13 @@ use crate::hex_grid::{AxialCoord, TILE_RADIUS};
 
 pub struct BoardPlugin;
 
+#[derive(Component)]
+struct BoardTile;
+
 impl Plugin for BoardPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(OnEnter(AppPhase::InGame), spawn_board);
+        app.add_systems(OnEnter(AppPhase::InGame), spawn_board)
+            .add_systems(OnExit(AppPhase::InGame), cleanup_board);
     }
 }
 
@@ -34,6 +38,7 @@ fn spawn_board(
             let color = tile_color(q, r);
 
             commands.spawn((
+                BoardTile,
                 Mesh2d(tile_mesh.clone()),
                 MeshMaterial2d(materials.add(color)),
                 Transform {
@@ -42,6 +47,12 @@ fn spawn_board(
                 },
             ));
         }
+    }
+}
+
+fn cleanup_board(mut commands: Commands, board_tiles: Query<Entity, With<BoardTile>>) {
+    for entity in &board_tiles {
+        commands.entity(entity).despawn();
     }
 }
 

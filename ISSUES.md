@@ -26,3 +26,5 @@
 - Added selectable AI type (Heuristic / Alpha-Beta) in game setup.
 - Added mirrored S fence variant so both S configurations can be placed.
 - Added frame limiting (focused ~60 FPS, lower idle when unfocused).
+- Added in-game quit `X` button and post-win rematch button (local and network).
+- Changed in-game `X` to return to main menu and added cleanup on leaving match.

@@ -32,14 +32,17 @@ impl Plugin for UiPlugin {
                     .run_if(in_state(AppPhase::Menu)),
             )
             .add_systems(OnEnter(AppPhase::InGame), in_game_menu::setup_in_game_ui)
+            .add_systems(OnExit(AppPhase::InGame), in_game_menu::cleanup_in_game_ui)
             .add_systems(
                 Update,
                 (
                     in_game_menu::handle_exit_button,
+                    in_game_menu::handle_rematch_button,
                     in_game_menu::handle_settings_toggle_button,
                     in_game_menu::handle_tab_buttons,
                     in_game_menu::handle_sound_slider_input,
                     in_game_menu::sync_sound_slider_visuals,
+                    in_game_menu::sync_rematch_visibility,
                     in_game_menu::sync_settings_popup_visibility,
                 )
                     .run_if(in_state(AppPhase::InGame)),

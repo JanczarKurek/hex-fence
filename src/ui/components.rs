@@ -122,6 +122,15 @@ pub(super) enum StartGameMode {
 pub(super) struct ExitButton;
 
 #[derive(Component)]
+pub(super) struct InGameUiRoot;
+
+#[derive(Component)]
+pub(super) struct RematchButton;
+
+#[derive(Component)]
+pub(super) struct RematchPanel;
+
+#[derive(Component)]
 pub(super) struct SettingsToggleButton;
 
 #[derive(Component)]

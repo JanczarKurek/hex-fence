@@ -7,7 +7,7 @@ mod network;
 mod settings;
 mod ui;
 
-use app_state::{AppPhase, GameConfig};
+use app_state::{AppPhase, GameConfig, RematchRequested, StartRematch};
 use bevy::prelude::*;
 use bevy::window::PresentMode;
 use bevy::winit::{UpdateMode, WinitSettings};
@@ -21,6 +21,8 @@ fn main() {
             focused_mode: UpdateMode::reactive_low_power(Duration::from_secs_f64(1.0 / 60.0)),
             unfocused_mode: UpdateMode::reactive_low_power(Duration::from_secs_f64(1.0 / 10.0)),
         })
+        .add_event::<RematchRequested>()
+        .add_event::<StartRematch>()
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
                 title: "Hex Board".to_string(),
