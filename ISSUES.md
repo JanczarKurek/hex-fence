@@ -19,10 +19,10 @@
 
 ## Performance
 - Frame meter should be of use
-- Frame limiting because it uses lots of CPU
 
 ## Done recently
 - Added local AI players support with a basic random-legal-move bot.
 - Upgraded AI with path-based heuristics and defensive fence placement.
 - Added selectable AI type (Heuristic / Alpha-Beta) in game setup.
 - Added mirrored S fence variant so both S configurations can be placed.
+- Added frame limiting (focused ~60 FPS, lower idle when unfocused).
