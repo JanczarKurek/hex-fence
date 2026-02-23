@@ -116,3 +116,31 @@ fn sequence_reports_first_invalid_step() {
         }
     );
 }
+
+#[test]
+fn s_and_mirrored_s_are_distinct_shapes() {
+    let anchor = AxialCoord::new(0, 0);
+    let s_edges = fence_edges(anchor, FenceShape::S, 0);
+    let mirrored_edges = fence_edges(anchor, FenceShape::SMirrored, 0);
+
+    assert_ne!(s_edges, mirrored_edges);
+}
+
+#[test]
+fn mirrored_s_matches_expected_connected_pattern_for_orientation_zero() {
+    let anchor = AxialCoord::new(0, 0);
+    let actual: HashSet<_> = fence_edges(anchor, FenceShape::SMirrored, 0)
+        .into_iter()
+        .collect();
+
+    let n0 = anchor.neighbor_in_direction(0);
+    let n1 = anchor.neighbor_in_direction(1);
+    let expected_next = n0.neighbor_in_direction(4);
+    let expected = HashSet::from([
+        EdgeKey::from_cells(anchor, n0),
+        EdgeKey::from_cells(anchor, n1),
+        EdgeKey::from_cells(n0, expected_next),
+    ]);
+
+    assert_eq!(actual, expected);
+}

@@ -467,7 +467,12 @@ fn candidate_fences(
 
     let mut dedup = HashSet::new();
     for anchor in anchors {
-        for shape in [FenceShape::C, FenceShape::Y, FenceShape::S] {
+        for shape in [
+            FenceShape::C,
+            FenceShape::Y,
+            FenceShape::S,
+            FenceShape::SMirrored,
+        ] {
             for orientation in 0..6 {
                 dedup.insert(canonical_edges(fence_edges(anchor, shape, orientation)));
             }

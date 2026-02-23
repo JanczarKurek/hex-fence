@@ -34,6 +34,7 @@ pub fn reset_fence_placement(mut placement: ResMut<FencePlacementState>) {
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub enum FenceShape {
     S,
+    SMirrored,
     C,
     Y,
 }
@@ -41,7 +42,8 @@ pub enum FenceShape {
 impl FenceShape {
     pub fn next(self) -> Self {
         match self {
-            Self::S => Self::C,
+            Self::S => Self::SMirrored,
+            Self::SMirrored => Self::C,
             Self::C => Self::Y,
             Self::Y => Self::S,
         }
@@ -80,6 +82,17 @@ pub fn fence_edges(anchor: AxialCoord, shape: FenceShape, orientation: usize) ->
                 EdgeKey::from_cells(anchor, n0),
                 EdgeKey::from_cells(anchor, n1),
                 EdgeKey::from_cells(n1, next),
+            ]
+        }
+        // Mirrored connected zig-zag path of three segments.
+        FenceShape::SMirrored => {
+            // Chain: (anchor-n0) -> (anchor-n1) -> (n0-next)
+            // where each neighboring pair shares a fence endpoint.
+            let next = n0.neighbor_in_direction((o + 4) % 6);
+            [
+                EdgeKey::from_cells(anchor, n0),
+                EdgeKey::from_cells(anchor, n1),
+                EdgeKey::from_cells(n0, next),
             ]
         }
     }

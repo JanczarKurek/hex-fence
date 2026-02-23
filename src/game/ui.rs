@@ -70,6 +70,7 @@ pub fn update_turn_indicator(
 fn fence_shape_name(shape: FenceShape) -> &'static str {
     match shape {
         FenceShape::S => "S",
+        FenceShape::SMirrored => "S-mirror",
         FenceShape::C => "C",
         FenceShape::Y => "Y",
     }

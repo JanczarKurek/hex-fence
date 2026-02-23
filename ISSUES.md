@@ -1,7 +1,6 @@
 
 ## Game rules
 - There should not be a common limit for the number of fences but a separate limit for each kind
-- The S fence can't be placed mirrored but this should be possible
 - There should be a timer for move
 - Make number of fences dependend of the board size.
 
@@ -18,7 +17,12 @@
 - There should be a sidepanel for selecting mode / type of fence together with fence counters.
 - Game should alert player when other player makes move (wayland has some mechanism for that?)
 
+## Performance
+- Frame meter should be of use
+- Frame limiting because it uses lots of CPU
+
 ## Done recently
 - Added local AI players support with a basic random-legal-move bot.
 - Upgraded AI with path-based heuristics and defensive fence placement.
 - Added selectable AI type (Heuristic / Alpha-Beta) in game setup.
+- Added mirrored S fence variant so both S configurations can be placed.
