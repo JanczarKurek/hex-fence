@@ -19,13 +19,16 @@ impl Plugin for UiPlugin {
             .add_systems(
                 Update,
                 (
-                    start_menu::handle_mode_choice_buttons,
+                    start_menu::handle_main_menu_action_buttons,
                     start_menu::handle_back_to_mode_button,
                     start_menu::handle_menu_option_buttons,
                     start_menu::handle_network_connect_button,
                     start_menu::handle_network_address_focus,
                     start_menu::handle_network_address_typing,
                     start_menu::sync_network_address_input_from_menu,
+                    start_menu::handle_menu_settings_close_button,
+                    start_menu::handle_menu_sound_slider_input,
+                    start_menu::sync_menu_sound_slider_visuals,
                     start_menu::handle_start_game_button,
                     start_menu::sync_menu_layout_visibility,
                     start_menu::sync_menu_button_visuals,

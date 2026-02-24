@@ -16,6 +16,8 @@ pub(super) struct MenuSelection {
     pub(super) net_mode: NetMode,
     pub(super) net_address: String,
     pub(super) address_focused: bool,
+    pub(super) show_authors_popup: bool,
+    pub(super) show_settings_popup: bool,
 }
 
 impl Default for MenuSelection {
@@ -31,6 +33,8 @@ impl Default for MenuSelection {
             net_mode: NetMode::Local,
             net_address: "127.0.0.1:4000".to_string(),
             address_focused: false,
+            show_authors_popup: false,
+            show_settings_popup: false,
         }
     }
 }
@@ -70,8 +74,17 @@ pub(super) struct AiStrategyButton {
 }
 
 #[derive(Component)]
-pub(super) struct ModeChoiceButton {
-    pub(super) mode: StartGameMode,
+pub(super) struct MainMenuActionButton {
+    pub(super) action: MainMenuAction,
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub(super) enum MainMenuAction {
+    LocalGame,
+    NetworkGame,
+    Settings,
+    Authors,
+    Quit,
 }
 
 #[derive(Component)]
@@ -82,6 +95,15 @@ pub(super) struct MenuScreenModeSelect;
 
 #[derive(Component)]
 pub(super) struct MenuScreenSetup;
+
+#[derive(Component)]
+pub(super) struct AuthorsPopup;
+
+#[derive(Component)]
+pub(super) struct MenuSettingsPopup;
+
+#[derive(Component)]
+pub(super) struct MenuSettingsCloseButton;
 
 #[derive(Component)]
 pub(super) struct LocalOnly;

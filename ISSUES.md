@@ -28,3 +28,5 @@
 - Added in-game quit `X` button and post-win rematch button (local and network).
 - Changed in-game `X` to return to main menu and added cleanup on leaving match.
 - Migrated settings to XDG config path and persisted last used network config.
+- Reworked main menu to a vertical Hex Fence layout with Local/Network/Settings/Authors/Quit.
+- Added Authors popup (Codex first, Janczar Knurek second) and menu Settings sound popup.

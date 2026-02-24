@@ -1,3 +1,4 @@
+use bevy::app::AppExit;
 use bevy::prelude::*;
 use bevy_simple_text_input::{TextInput, TextInputInactive, TextInputValue};
 
@@ -6,20 +7,21 @@ use crate::network::{NetConfig, NetMode, NetRuntime};
 use crate::settings::{self, AppSettings, LastNetMode};
 
 use super::components::{
-    AiCooldownButton, AiPlayerCountButton, AiStrategyButton, BackToModeButton, BoardSizeButton,
-    ConnectedPlayersText, LocalOnly, MenuScreen, MenuScreenModeSelect, MenuScreenSetup,
-    MenuSelection, ModeChoiceButton, NetworkAddressInputButton, NetworkAddressInputField,
-    NetworkConnectButton, NetworkModeButton, NetworkOnly, PlayerCountButton, StartGameButton,
-    StartGameButtonLabel, StartGameMode, StartMenuRoot,
+    AiCooldownButton, AiPlayerCountButton, AiStrategyButton, AuthorsPopup, BackToModeButton,
+    BoardSizeButton, ConnectedPlayersText, LocalOnly, MainMenuAction, MainMenuActionButton,
+    MenuScreen, MenuScreenModeSelect, MenuScreenSetup, MenuSelection, MenuSettingsCloseButton,
+    MenuSettingsPopup, NetworkAddressInputButton, NetworkAddressInputField, NetworkConnectButton,
+    NetworkModeButton, NetworkOnly, PlayerCountButton, SoundSliderFill, SoundSliderKind,
+    SoundSliderTrack, SoundSliderValueText, StartGameButton, StartGameButtonLabel, StartGameMode,
+    StartMenuRoot,
 };
 use super::styles::{
     HOVERED_BUTTON, MENU_PANEL_BG, MENU_SELECTED, MENU_START, NORMAL_BUTTON, PRESSED_BUTTON,
-    button_bundle, button_node, menu_text, neutral_button_color, row_node, selected_button_color,
-    white_text,
+    button_bundle, button_node, menu_text, neutral_button_color, selected_button_color, white_text,
 };
 use super::widgets::{
     spawn_ai_cooldown_row, spawn_ai_player_row, spawn_ai_strategy_row, spawn_choice_row,
-    spawn_network_mode_row, spawn_player_row,
+    spawn_network_mode_row, spawn_player_row, spawn_sound_slider_row,
 };
 
 const AI_COOLDOWN_CHOICES_MS: [u32; 5] = [250, 500, 1_000, 1_500, 2_000];
@@ -27,6 +29,7 @@ const AI_COOLDOWN_CHOICES_MS: [u32; 5] = [250, 500, 1_000, 1_500, 2_000];
 pub(super) fn setup_start_menu(
     mut commands: Commands,
     game_config: Res<GameConfig>,
+    app_settings: Res<AppSettings>,
     net_config: Res<NetConfig>,
     mut menu: ResMut<MenuSelection>,
 ) {
@@ -49,6 +52,8 @@ pub(super) fn setup_start_menu(
     menu.net_mode = net_config.mode;
     menu.net_address = net_config.address.clone();
     menu.address_focused = false;
+    menu.show_authors_popup = false;
+    menu.show_settings_popup = false;
 
     commands
         .spawn((
@@ -76,7 +81,7 @@ pub(super) fn setup_start_menu(
                 BackgroundColor(MENU_PANEL_BG),
             ))
             .with_children(|panel| {
-                panel.spawn(white_text("Hex Board Setup", 34.0));
+                panel.spawn(white_text("Hex Fence", 42.0));
 
                 panel
                     .spawn((
@@ -85,33 +90,27 @@ pub(super) fn setup_start_menu(
                             width: Val::Percent(100.0),
                             row_gap: Val::Px(12.0),
                             flex_direction: FlexDirection::Column,
+                            align_items: AlignItems::Center,
                             ..default()
                         },
                     ))
                     .with_children(|step| {
-                        step.spawn(menu_text("Choose Mode", 20.0));
-                        step.spawn(row_node(10.0)).with_children(|row| {
-                            row.spawn(button_bundle(
-                                ModeChoiceButton {
-                                    mode: StartGameMode::Local,
-                                },
-                                button_node(220.0, 44.0, 1.0),
+                        for (label, action) in [
+                            ("Local Game", MainMenuAction::LocalGame),
+                            ("Network Game", MainMenuAction::NetworkGame),
+                            ("Settings", MainMenuAction::Settings),
+                            ("Authors", MainMenuAction::Authors),
+                            ("Quit", MainMenuAction::Quit),
+                        ] {
+                            step.spawn(button_bundle(
+                                MainMenuActionButton { action },
+                                button_node(260.0, 46.0, 1.0),
                                 NORMAL_BUTTON,
                             ))
                             .with_children(|button| {
-                                button.spawn(white_text("Local Multiplayer", 18.0));
+                                button.spawn(white_text(label, 18.0));
                             });
-                            row.spawn(button_bundle(
-                                ModeChoiceButton {
-                                    mode: StartGameMode::Network,
-                                },
-                                button_node(240.0, 44.0, 1.0),
-                                NORMAL_BUTTON,
-                            ))
-                            .with_children(|button| {
-                                button.spawn(white_text("Network Multiplayer", 18.0));
-                            });
-                        });
+                        }
                     });
 
                 panel
@@ -230,7 +229,116 @@ pub(super) fn setup_start_menu(
                             button.spawn((StartGameButtonLabel, white_text("Start Game", 24.0)));
                         });
                     });
+
             });
+
+            root
+                .spawn((
+                    AuthorsPopup,
+                    Node {
+                        width: Val::Percent(100.0),
+                        height: Val::Percent(100.0),
+                        position_type: PositionType::Absolute,
+                        justify_content: JustifyContent::Center,
+                        align_items: AlignItems::Center,
+                        display: Display::None,
+                        ..default()
+                    },
+                    BackgroundColor(Color::srgba(0.02, 0.03, 0.04, 0.75)),
+                ))
+                .with_children(|overlay| {
+                    overlay
+                        .spawn((
+                            Node {
+                                width: Val::Percent(100.0),
+                                max_width: Val::Px(360.0),
+                                padding: UiRect::all(Val::Px(16.0)),
+                                border: UiRect::all(Val::Px(2.0)),
+                                row_gap: Val::Px(10.0),
+                                flex_direction: FlexDirection::Column,
+                                align_items: AlignItems::FlexStart,
+                                ..default()
+                            },
+                            BorderColor(Color::srgb(0.22, 0.22, 0.25)),
+                            BackgroundColor(MENU_PANEL_BG),
+                        ))
+                        .with_children(|popup| {
+                            popup.spawn(white_text("Authors", 24.0));
+                            popup.spawn(menu_text("1. Codex", 17.0));
+                            popup.spawn(menu_text("2. Janczar Knurek ;)", 17.0));
+                            popup
+                                .spawn(button_bundle(
+                                    MenuSettingsCloseButton,
+                                    button_node(120.0, 36.0, 1.0),
+                                    NORMAL_BUTTON,
+                                ))
+                                .with_children(|button| {
+                                    button.spawn(white_text("Close", 16.0));
+                                });
+                        });
+                });
+
+            root
+                .spawn((
+                    MenuSettingsPopup,
+                    Node {
+                        width: Val::Percent(100.0),
+                        height: Val::Percent(100.0),
+                        position_type: PositionType::Absolute,
+                        justify_content: JustifyContent::Center,
+                        align_items: AlignItems::Center,
+                        display: Display::None,
+                        ..default()
+                    },
+                    BackgroundColor(Color::srgba(0.02, 0.03, 0.04, 0.75)),
+                ))
+                .with_children(|overlay| {
+                    overlay
+                        .spawn((
+                            Node {
+                                width: Val::Percent(100.0),
+                                max_width: Val::Px(420.0),
+                                padding: UiRect::all(Val::Px(16.0)),
+                                border: UiRect::all(Val::Px(2.0)),
+                                row_gap: Val::Px(12.0),
+                                flex_direction: FlexDirection::Column,
+                                align_items: AlignItems::Stretch,
+                                ..default()
+                            },
+                            BorderColor(Color::srgb(0.22, 0.22, 0.25)),
+                            BackgroundColor(MENU_PANEL_BG),
+                        ))
+                        .with_children(|popup| {
+                            popup.spawn(white_text("Settings", 24.0));
+                            spawn_sound_slider_row(
+                                popup,
+                                "Master Volume",
+                                SoundSliderKind::Master,
+                                app_settings.audio.master,
+                            );
+                            spawn_sound_slider_row(
+                                popup,
+                                "Music Volume",
+                                SoundSliderKind::Music,
+                                app_settings.audio.music,
+                            );
+                            spawn_sound_slider_row(
+                                popup,
+                                "Effects Volume",
+                                SoundSliderKind::Effects,
+                                app_settings.audio.effects,
+                            );
+                            popup
+                                .spawn(button_bundle(
+                                    MenuSettingsCloseButton,
+                                    button_node(120.0, 36.0, 1.0),
+                                    NORMAL_BUTTON,
+                                ))
+                                .with_children(|button| {
+                                    button.spawn(white_text("Close", 16.0));
+                                });
+                        });
+                });
         });
 }
 
@@ -243,22 +351,50 @@ pub(super) fn cleanup_start_menu(
     }
 }
 
-pub(super) fn handle_mode_choice_buttons(
+pub(super) fn handle_main_menu_action_buttons(
     mut menu: ResMut<MenuSelection>,
+    mut exit_events: EventWriter<AppExit>,
     mut interactions: Query<
-        (&Interaction, &ModeChoiceButton),
+        (&Interaction, &MainMenuActionButton, &mut BackgroundColor),
         (Changed<Interaction>, With<Button>),
     >,
 ) {
-    for (interaction, button) in &mut interactions {
-        if *interaction == Interaction::Pressed {
-            menu.game_mode = button.mode;
-            menu.screen = MenuScreen::Setup;
-            menu.address_focused = false;
-            if menu.game_mode == StartGameMode::Network && matches!(menu.net_mode, NetMode::Local) {
-                menu.net_mode = NetMode::Host;
+    for (interaction, button, mut color) in &mut interactions {
+        let interaction = *interaction;
+        if interaction == Interaction::Pressed {
+            match button.action {
+                MainMenuAction::LocalGame => {
+                    menu.game_mode = StartGameMode::Local;
+                    menu.screen = MenuScreen::Setup;
+                    menu.show_authors_popup = false;
+                    menu.show_settings_popup = false;
+                    menu.address_focused = false;
+                }
+                MainMenuAction::NetworkGame => {
+                    menu.game_mode = StartGameMode::Network;
+                    menu.screen = MenuScreen::Setup;
+                    menu.show_authors_popup = false;
+                    menu.show_settings_popup = false;
+                    menu.address_focused = false;
+                    if matches!(menu.net_mode, NetMode::Local) {
+                        menu.net_mode = NetMode::Host;
+                    }
+                }
+                MainMenuAction::Settings => {
+                    menu.show_settings_popup = !menu.show_settings_popup;
+                    menu.show_authors_popup = false;
+                    menu.address_focused = false;
+                }
+                MainMenuAction::Authors => {
+                    menu.show_authors_popup = !menu.show_authors_popup;
+                    menu.show_settings_popup = false;
+                }
+                MainMenuAction::Quit => {
+                    exit_events.write(AppExit::Success);
+                }
             }
         }
+        *color = neutral_button_color(interaction).into();
     }
 }
 
@@ -274,8 +410,67 @@ pub(super) fn handle_back_to_mode_button(
         if interaction == Interaction::Pressed {
             menu.screen = MenuScreen::ModeSelect;
             menu.address_focused = false;
+            menu.show_authors_popup = false;
+            menu.show_settings_popup = false;
         }
         *color = neutral_button_color(interaction).into();
+    }
+}
+
+pub(super) fn handle_menu_settings_close_button(
+    mut menu: ResMut<MenuSelection>,
+    mut interactions: Query<
+        (&Interaction, &mut BackgroundColor),
+        (Changed<Interaction>, With<MenuSettingsCloseButton>),
+    >,
+) {
+    for (interaction, mut color) in &mut interactions {
+        let interaction = *interaction;
+        if interaction == Interaction::Pressed {
+            menu.show_settings_popup = false;
+            menu.show_authors_popup = false;
+        }
+        *color = neutral_button_color(interaction).into();
+    }
+}
+
+pub(super) fn handle_menu_sound_slider_input(
+    mut app_settings: ResMut<AppSettings>,
+    track_query: Query<(&Interaction, &bevy::ui::RelativeCursorPosition, &SoundSliderTrack), With<Button>>,
+) {
+    let mut changed = false;
+    for (interaction, cursor_pos, slider) in &track_query {
+        if *interaction != Interaction::Pressed {
+            continue;
+        }
+        let Some(normalized) = cursor_pos.normalized else {
+            continue;
+        };
+        slider.kind.set_value(&mut app_settings, normalized.x);
+        changed = true;
+    }
+
+    if changed {
+        let _ = settings::save_settings_to_disk(app_settings.clone());
+    }
+}
+
+pub(super) fn sync_menu_sound_slider_visuals(
+    app_settings: Res<AppSettings>,
+    mut fill_query: Query<(&SoundSliderFill, &mut Node)>,
+    mut value_text_query: Query<(&SoundSliderValueText, &mut Text)>,
+) {
+    if !app_settings.is_changed() {
+        return;
+    }
+
+    for (fill, mut node) in &mut fill_query {
+        node.width = Val::Percent(fill.kind.value(&app_settings) * 100.0);
+    }
+
+    for (value_text, mut text) in &mut value_text_query {
+        let value = (value_text.kind.value(&app_settings) * 100.0).round() as i32;
+        *text = Text::new(format!("{:>3}%", value));
     }
 }
 
@@ -491,6 +686,8 @@ pub(super) fn sync_menu_layout_visibility(
     mut sections: Query<(
         Option<&MenuScreenModeSelect>,
         Option<&MenuScreenSetup>,
+        Option<&AuthorsPopup>,
+        Option<&MenuSettingsPopup>,
         Option<&LocalOnly>,
         Option<&NetworkOnly>,
         &mut Node,
@@ -500,15 +697,30 @@ pub(super) fn sync_menu_layout_visibility(
         return;
     }
 
-    for (mode_screen, setup_screen, local_only, network_only, mut node) in &mut sections {
+    for (mode_screen, setup_screen, authors_popup, settings_popup, local_only, network_only, mut node) in &mut sections {
         if mode_screen.is_some() {
-            node.display = if menu.screen == MenuScreen::ModeSelect {
+            node.display = if menu.screen == MenuScreen::ModeSelect
+                && !menu.show_authors_popup
+                && !menu.show_settings_popup
+            {
                 Display::Flex
             } else {
                 Display::None
             };
         } else if setup_screen.is_some() {
             node.display = if menu.screen == MenuScreen::Setup {
+                Display::Flex
+            } else {
+                Display::None
+            };
+        } else if authors_popup.is_some() {
+            node.display = if menu.screen == MenuScreen::ModeSelect && menu.show_authors_popup {
+                Display::Flex
+            } else {
+                Display::None
+            };
+        } else if settings_popup.is_some() {
+            node.display = if menu.screen == MenuScreen::ModeSelect && menu.show_settings_popup {
                 Display::Flex
             } else {
                 Display::None
@@ -542,7 +754,7 @@ pub(super) fn sync_menu_button_visuals(
             Option<&AiPlayerCountButton>,
             Option<&AiCooldownButton>,
             Option<&AiStrategyButton>,
-            Option<&ModeChoiceButton>,
+            Option<&MainMenuActionButton>,
             Option<&NetworkModeButton>,
             Option<&NetworkAddressInputButton>,
             &mut BackgroundColor,
@@ -562,7 +774,7 @@ pub(super) fn sync_menu_button_visuals(
         ai_player,
         ai_cooldown,
         ai_strategy,
-        mode_choice,
+        menu_action,
         network_mode,
         address_input,
         mut color,
@@ -579,8 +791,8 @@ pub(super) fn sync_menu_button_visuals(
             selected_button_color(button.cooldown_ms == menu.ai_cooldown_ms, *interaction).into()
         } else if let Some(button) = ai_strategy {
             selected_button_color(button.strategy == menu.ai_strategy, *interaction).into()
-        } else if let Some(button) = mode_choice {
-            selected_button_color(button.mode == menu.game_mode, *interaction).into()
+        } else if menu_action.is_some() {
+            neutral_button_color(*interaction).into()
         } else if let Some(button) = network_mode {
             selected_button_color(button.mode == menu.net_mode, *interaction).into()
         } else if address_input.is_some() {
