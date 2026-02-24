@@ -17,18 +17,21 @@ use crate::app_state::{AppPhase, GameConfig, StartRematch};
 use bevy::prelude::*;
 
 use ai::{AiRng, AiTurnCooldown};
-use components::{InGameHudUi, MoveHighlight, Pawn};
+use components::{InGameHudUi, MoveHighlight, Pawn, PlayerPanelUiState};
 use fence::FencePlacementState;
 use selection::PawnSelection;
 use state::TurnState;
 
 pub struct GamePlugin;
+pub use components::HoveredGoalPreview;
 
 impl Plugin for GamePlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(TurnState::default())
             .insert_resource(PawnSelection::default())
             .insert_resource(FencePlacementState::default())
+            .insert_resource(HoveredGoalPreview::default())
+            .insert_resource(PlayerPanelUiState::default())
             .insert_resource(AiRng::default())
             .insert_resource(AiTurnCooldown::default())
             .init_resource::<audio::GameAudioAssets>()
@@ -61,7 +64,10 @@ impl Plugin for GamePlugin {
                     )
                         .chain(),
                     audio::update_background_music_volume,
+                    ui::handle_player_panel_toggle_button,
+                    ui::sync_player_panel_collapsed_state,
                     highlight::update_move_highlights,
+                    ui::update_hovered_goal_preview,
                     ui::update_turn_indicator,
                 )
                     .run_if(in_state(AppPhase::InGame)),

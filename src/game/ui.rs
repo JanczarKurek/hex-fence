@@ -2,7 +2,10 @@ use bevy::prelude::*;
 
 use crate::app_state::{AiStrategy, GameConfig};
 
-use super::components::{InGameHudUi, PlayerListEntry, TurnStatusText};
+use super::components::{
+    HoveredGoalPreview, InGameHudUi, PlayerListEntry, PlayerListLabel, PlayerPanelBody,
+    PlayerPanelToggleButton, PlayerPanelToggleText, PlayerPanelUiState, TurnStatusText,
+};
 use super::fence::{FencePlacementState, FenceShape};
 use super::state::TurnState;
 
@@ -41,22 +44,158 @@ pub fn setup_turn_indicator(mut commands: Commands, turn_state: Res<TurnState>) 
         ))
         .with_children(|panel| {
             panel.spawn((
-                Text::new("Players"),
-                TextFont::from_font_size(20.0),
-                TextColor(Color::srgb(0.9, 0.9, 0.95)),
-            ));
-
-            for player in &turn_state.players {
-                panel.spawn((
-                    PlayerListEntry {
-                        player_index: player.index,
-                    },
-                    Text::new(format!("  Player {}", player.index + 1)),
-                    TextFont::from_font_size(18.0),
-                    TextColor(player.pawn_color),
+                Node {
+                    width: Val::Percent(100.0),
+                    min_height: Val::Px(28.0),
+                    justify_content: JustifyContent::SpaceBetween,
+                    align_items: AlignItems::Center,
+                    ..default()
+                },
+            ))
+            .with_children(|header| {
+                header.spawn((
+                    Text::new("Players"),
+                    TextFont::from_font_size(20.0),
+                    TextColor(Color::srgb(0.9, 0.9, 0.95)),
                 ));
-            }
+
+                header
+                    .spawn((
+                        Button,
+                        PlayerPanelToggleButton,
+                        Node {
+                            width: Val::Px(28.0),
+                            height: Val::Px(28.0),
+                            justify_content: JustifyContent::Center,
+                            align_items: AlignItems::Center,
+                            border: UiRect::all(Val::Px(1.0)),
+                            ..default()
+                        },
+                        BorderColor(Color::srgba(0.95, 0.95, 1.0, 0.35)),
+                        BackgroundColor(Color::srgba(1.0, 1.0, 1.0, 0.06)),
+                    ))
+                    .with_children(|button| {
+                        button.spawn((
+                            PlayerPanelToggleText,
+                            Text::new("-"),
+                            TextFont::from_font_size(20.0),
+                            TextColor(Color::srgb(0.9, 0.9, 0.95)),
+                        ));
+                    });
+            });
+
+            panel.spawn((
+                PlayerPanelBody,
+                Node {
+                    width: Val::Percent(100.0),
+                    flex_direction: FlexDirection::Column,
+                    row_gap: Val::Px(4.0),
+                    ..default()
+                },
+            ))
+            .with_children(|body| {
+                for player in &turn_state.players {
+                    body
+                        .spawn((
+                            Button,
+                            PlayerListEntry {
+                                player_index: player.index,
+                            },
+                            Node {
+                                width: Val::Percent(100.0),
+                                min_height: Val::Px(32.0),
+                                justify_content: JustifyContent::FlexStart,
+                                align_items: AlignItems::Center,
+                                padding: UiRect::horizontal(Val::Px(8.0)),
+                                ..default()
+                            },
+                            BackgroundColor(Color::NONE),
+                        ))
+                        .with_children(|row| {
+                            row.spawn((
+                                PlayerListLabel {
+                                    player_index: player.index,
+                                },
+                                Text::new(format!("  Player {}", player.index + 1)),
+                                TextFont::from_font_size(18.0),
+                                TextColor(player.pawn_color),
+                            ));
+                        });
+                }
+            });
         });
+}
+
+pub fn handle_player_panel_toggle_button(
+    mut state: ResMut<PlayerPanelUiState>,
+    mut interactions: Query<
+        (&Interaction, &mut BackgroundColor),
+        (Changed<Interaction>, With<PlayerPanelToggleButton>),
+    >,
+) {
+    for (interaction, mut color) in &mut interactions {
+        match *interaction {
+            Interaction::Pressed => {
+                state.collapsed = !state.collapsed;
+                *color = BackgroundColor(Color::srgba(1.0, 1.0, 1.0, 0.18));
+            }
+            Interaction::Hovered => {
+                *color = BackgroundColor(Color::srgba(1.0, 1.0, 1.0, 0.12));
+            }
+            Interaction::None => {
+                *color = BackgroundColor(Color::srgba(1.0, 1.0, 1.0, 0.06));
+            }
+        }
+    }
+}
+
+pub fn sync_player_panel_collapsed_state(
+    panel_state: Res<PlayerPanelUiState>,
+    mut hovered_preview: ResMut<HoveredGoalPreview>,
+    mut panel_bodies: Query<&mut Node, With<PlayerPanelBody>>,
+    mut toggle_texts: Query<&mut Text, With<PlayerPanelToggleText>>,
+) {
+    if !panel_state.is_changed() {
+        return;
+    }
+
+    let display = if panel_state.collapsed {
+        hovered_preview.player_index = None;
+        Display::None
+    } else {
+        Display::Flex
+    };
+
+    for mut body in &mut panel_bodies {
+        body.display = display;
+    }
+    for mut text in &mut toggle_texts {
+        *text = Text::new(if panel_state.collapsed { "+" } else { "-" });
+    }
+}
+
+pub fn update_hovered_goal_preview(
+    panel_state: Res<PlayerPanelUiState>,
+    mut hovered_preview: ResMut<HoveredGoalPreview>,
+    row_interactions: Query<(&Interaction, &PlayerListEntry), With<Button>>,
+) {
+    if panel_state.collapsed {
+        if hovered_preview.player_index.is_some() {
+            hovered_preview.player_index = None;
+        }
+        return;
+    }
+
+    let hovered_player = row_interactions
+        .iter()
+        .find_map(|(interaction, entry)| match *interaction {
+            Interaction::Hovered | Interaction::Pressed => Some(entry.player_index),
+            Interaction::None => None,
+        });
+
+    if hovered_preview.player_index != hovered_player {
+        hovered_preview.player_index = hovered_player;
+    }
 }
 
 pub fn update_turn_indicator(
@@ -65,7 +204,8 @@ pub fn update_turn_indicator(
     fence_placement: Res<FencePlacementState>,
     mut ui_queries: ParamSet<(
         Query<(&mut Text, &mut TextColor), With<TurnStatusText>>,
-        Query<(&PlayerListEntry, &mut Text, &mut TextColor)>,
+        Query<(&PlayerListLabel, &mut Text, &mut TextColor)>,
+        Query<(&PlayerListEntry, &Interaction, &mut BackgroundColor), With<Button>>,
     )>,
 ) {
     if !turn_state.is_changed() && !fence_placement.is_changed() {
@@ -108,8 +248,8 @@ pub fn update_turn_indicator(
         *text_color = TextColor(turn_state.players[turn_state.current_player].pawn_color);
     }
 
-    let mut player_rows = ui_queries.p1();
-    for (entry, mut row_text, mut row_color) in &mut player_rows {
+    let mut player_labels = ui_queries.p1();
+    for (entry, mut row_text, mut row_color) in &mut player_labels {
         let player_index = entry.player_index;
         let active_marker = if turn_state.current_player == player_index {
             ">"
@@ -145,6 +285,25 @@ pub fn update_turn_indicator(
             winner_marker
         ));
         *row_color = TextColor(turn_state.players[player_index].pawn_color);
+    }
+
+    let mut player_rows = ui_queries.p2();
+    for (entry, interaction, mut row_bg) in &mut player_rows {
+        let player_color = turn_state.players[entry.player_index].pawn_color.to_srgba();
+        let highlight = Color::srgba(
+            player_color.red,
+            player_color.green,
+            player_color.blue,
+            0.22,
+        );
+        let active = Color::srgba(1.0, 1.0, 1.0, 0.08);
+        *row_bg = match *interaction {
+            Interaction::Hovered | Interaction::Pressed => BackgroundColor(highlight),
+            Interaction::None if turn_state.current_player == entry.player_index => {
+                BackgroundColor(active)
+            }
+            Interaction::None => BackgroundColor(Color::NONE),
+        };
     }
 }
 
