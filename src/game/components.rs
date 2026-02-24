@@ -6,7 +6,15 @@ pub struct Pawn {
 }
 
 #[derive(Component)]
-pub struct TurnIndicator;
+pub struct InGameHudUi;
+
+#[derive(Component)]
+pub struct TurnStatusText;
+
+#[derive(Component)]
+pub struct PlayerListEntry {
+    pub player_index: usize,
+}
 
 #[derive(Component)]
 pub struct MoveHighlight;

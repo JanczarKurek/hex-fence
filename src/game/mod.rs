@@ -17,7 +17,7 @@ use crate::app_state::{AppPhase, GameConfig, StartRematch};
 use bevy::prelude::*;
 
 use ai::{AiRng, AiTurnCooldown};
-use components::{MoveHighlight, Pawn, TurnIndicator};
+use components::{InGameHudUi, MoveHighlight, Pawn};
 use fence::FencePlacementState;
 use selection::PawnSelection;
 use state::TurnState;
@@ -75,7 +75,7 @@ fn cleanup_in_game_entities(
     fence_segments: Query<Entity, With<fence::FenceSegment>>,
     fence_previews: Query<Entity, With<fence::FencePreviewSegment>>,
     move_highlights: Query<Entity, With<MoveHighlight>>,
-    turn_indicators: Query<Entity, With<TurnIndicator>>,
+    hud_entities: Query<Entity, With<InGameHudUi>>,
 ) {
     for entity in &pawns {
         commands.entity(entity).despawn();
@@ -89,7 +89,8 @@ fn cleanup_in_game_entities(
     for entity in &move_highlights {
         commands.entity(entity).despawn();
     }
-    for entity in &turn_indicators {
+    for entity in &hud_entities {
+        commands.entity(entity).despawn_related::<Children>();
         commands.entity(entity).despawn();
     }
 }
