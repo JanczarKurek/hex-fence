@@ -17,6 +17,7 @@ pub(super) struct MenuSelection {
     pub(super) net_address: String,
     pub(super) address_focused: bool,
     pub(super) show_authors_popup: bool,
+    pub(super) show_rules_popup: bool,
     pub(super) show_settings_popup: bool,
 }
 
@@ -34,6 +35,7 @@ impl Default for MenuSelection {
             net_address: "127.0.0.1:4000".to_string(),
             address_focused: false,
             show_authors_popup: false,
+            show_rules_popup: false,
             show_settings_popup: false,
         }
     }
@@ -83,6 +85,7 @@ pub(super) enum MainMenuAction {
     LocalGame,
     NetworkGame,
     Settings,
+    Rules,
     Authors,
     Quit,
 }
@@ -98,6 +101,9 @@ pub(super) struct MenuScreenSetup;
 
 #[derive(Component)]
 pub(super) struct AuthorsPopup;
+
+#[derive(Component)]
+pub(super) struct RulesPopup;
 
 #[derive(Component)]
 pub(super) struct MenuSettingsPopup;
@@ -187,6 +193,7 @@ pub(super) struct SoundSliderValueText {
 pub(super) struct SettingsUiState {
     pub(super) open: bool,
     pub(super) active_tab: SettingsTab,
+    pub(super) pending_control_binding: Option<ControlBindingKind>,
 }
 
 impl Default for SettingsUiState {
@@ -194,6 +201,7 @@ impl Default for SettingsUiState {
         Self {
             open: false,
             active_tab: SettingsTab::Sound,
+            pending_control_binding: None,
         }
     }
 }
@@ -201,6 +209,7 @@ impl Default for SettingsUiState {
 #[derive(Component, Clone, Copy, Eq, PartialEq)]
 pub(super) enum SettingsTab {
     Sound,
+    Controls,
 }
 
 #[derive(Component, Clone, Copy)]
@@ -208,6 +217,23 @@ pub(super) enum SoundSliderKind {
     Master,
     Music,
     Effects,
+}
+
+#[derive(Component, Clone, Copy, Eq, PartialEq)]
+pub(super) enum ControlBindingKind {
+    ToggleFenceMode,
+    CycleFenceShape,
+    RotateFenceOrientation,
+}
+
+#[derive(Component)]
+pub(super) struct ControlBindingButton {
+    pub(super) kind: ControlBindingKind,
+}
+
+#[derive(Component)]
+pub(super) struct ControlBindingValueText {
+    pub(super) kind: ControlBindingKind,
 }
 
 impl SoundSliderKind {

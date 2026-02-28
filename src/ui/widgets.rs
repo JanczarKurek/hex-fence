@@ -8,6 +8,7 @@ use crate::app_state::AiStrategy;
 use super::components::{
     AiCooldownButton, AiPlayerCountButton, AiStrategyButton, BoardSizeButton, NetworkModeButton,
     PlayerCountButton, SoundSliderFill, SoundSliderKind, SoundSliderTrack, SoundSliderValueText,
+    ControlBindingButton, ControlBindingKind, ControlBindingValueText,
 };
 use super::styles::{
     MENU_SELECTED, NORMAL_BUTTON, SLIDER_FILL, SLIDER_TRACK, VALUE_TEXT, button_bundle,
@@ -207,5 +208,50 @@ pub(super) fn spawn_sound_slider_row(
                     ..default()
                 },
             ));
+        });
+}
+
+pub(super) fn spawn_control_binding_row(
+    parent: &mut ChildSpawnerCommands,
+    label: &str,
+    kind: ControlBindingKind,
+    value: &str,
+) {
+    parent
+        .spawn(Node {
+            width: Val::Percent(100.0),
+            height: Val::Px(40.0),
+            justify_content: JustifyContent::SpaceBetween,
+            align_items: AlignItems::Center,
+            column_gap: Val::Px(16.0),
+            ..default()
+        })
+        .with_children(|row| {
+            row.spawn((
+                white_text(label, 16.0),
+                Node {
+                    width: Val::Px(230.0),
+                    ..default()
+                },
+            ));
+
+            row.spawn(button_bundle(
+                ControlBindingButton { kind },
+                Node {
+                    width: Val::Px(140.0),
+                    height: Val::Px(34.0),
+                    justify_content: JustifyContent::Center,
+                    align_items: AlignItems::Center,
+                    border: UiRect::all(Val::Px(1.0)),
+                    ..default()
+                },
+                NORMAL_BUTTON,
+            ))
+            .with_children(|button| {
+                button.spawn((
+                    ControlBindingValueText { kind },
+                    white_text(value, 15.0),
+                ));
+            });
         });
 }

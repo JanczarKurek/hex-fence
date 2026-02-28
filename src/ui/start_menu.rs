@@ -8,20 +8,22 @@ use crate::settings::{self, AppSettings, LastNetMode};
 
 use super::components::{
     AiCooldownButton, AiPlayerCountButton, AiStrategyButton, AuthorsPopup, BackToModeButton,
-    BoardSizeButton, ConnectedPlayersText, LocalOnly, MainMenuAction, MainMenuActionButton,
-    MenuScreen, MenuScreenModeSelect, MenuScreenSetup, MenuSelection, MenuSettingsCloseButton,
+    BoardSizeButton, ConnectedPlayersText, ControlBindingButton, ControlBindingKind,
+    ControlBindingValueText, LocalOnly, MainMenuAction, MainMenuActionButton, MenuScreen,
+    MenuScreenModeSelect, MenuScreenSetup, MenuSelection, MenuSettingsCloseButton,
     MenuSettingsPopup, NetworkAddressInputButton, NetworkAddressInputField, NetworkConnectButton,
-    NetworkModeButton, NetworkOnly, PlayerCountButton, SoundSliderFill, SoundSliderKind,
-    SoundSliderTrack, SoundSliderValueText, StartGameButton, StartGameButtonLabel, StartGameMode,
-    StartMenuRoot,
+    NetworkModeButton, NetworkOnly, PlayerCountButton, RulesPopup, SettingsTab, SettingsTabButton,
+    SettingsTabContent, SettingsUiState, SoundSliderFill, SoundSliderKind, SoundSliderTrack,
+    SoundSliderValueText, StartGameButton, StartGameButtonLabel, StartGameMode, StartMenuRoot,
 };
 use super::styles::{
     HOVERED_BUTTON, MENU_PANEL_BG, MENU_SELECTED, MENU_START, NORMAL_BUTTON, PRESSED_BUTTON,
-    button_bundle, button_node, menu_text, neutral_button_color, selected_button_color, white_text,
+    TAB_ACTIVE, TAB_INACTIVE, button_bundle, button_node, menu_text, neutral_button_color,
+    selected_button_color, white_text,
 };
 use super::widgets::{
     spawn_ai_cooldown_row, spawn_ai_player_row, spawn_ai_strategy_row, spawn_choice_row,
-    spawn_network_mode_row, spawn_player_row, spawn_sound_slider_row,
+    spawn_control_binding_row, spawn_network_mode_row, spawn_player_row, spawn_sound_slider_row,
 };
 
 const AI_COOLDOWN_CHOICES_MS: [u32; 5] = [250, 500, 1_000, 1_500, 2_000];
@@ -31,8 +33,10 @@ pub(super) fn setup_start_menu(
     game_config: Res<GameConfig>,
     app_settings: Res<AppSettings>,
     net_config: Res<NetConfig>,
+    mut settings_ui: ResMut<SettingsUiState>,
     mut menu: ResMut<MenuSelection>,
 ) {
+    settings_ui.pending_control_binding = None;
     menu.screen = MenuScreen::ModeSelect;
     menu.game_mode = if matches!(net_config.mode, NetMode::Local) {
         StartGameMode::Local
@@ -53,6 +57,7 @@ pub(super) fn setup_start_menu(
     menu.net_address = net_config.address.clone();
     menu.address_focused = false;
     menu.show_authors_popup = false;
+    menu.show_rules_popup = false;
     menu.show_settings_popup = false;
 
     commands
@@ -99,6 +104,7 @@ pub(super) fn setup_start_menu(
                             ("Local Game", MainMenuAction::LocalGame),
                             ("Network Game", MainMenuAction::NetworkGame),
                             ("Settings", MainMenuAction::Settings),
+                            ("Rules", MainMenuAction::Rules),
                             ("Authors", MainMenuAction::Authors),
                             ("Quit", MainMenuAction::Quit),
                         ] {
@@ -280,6 +286,63 @@ pub(super) fn setup_start_menu(
 
             root
                 .spawn((
+                    RulesPopup,
+                    Node {
+                        width: Val::Percent(100.0),
+                        height: Val::Percent(100.0),
+                        position_type: PositionType::Absolute,
+                        justify_content: JustifyContent::Center,
+                        align_items: AlignItems::Center,
+                        display: Display::None,
+                        ..default()
+                    },
+                    BackgroundColor(Color::srgba(0.02, 0.03, 0.04, 0.75)),
+                ))
+                .with_children(|overlay| {
+                    overlay
+                        .spawn((
+                            Node {
+                                width: Val::Percent(100.0),
+                                max_width: Val::Px(480.0),
+                                padding: UiRect::all(Val::Px(16.0)),
+                                border: UiRect::all(Val::Px(2.0)),
+                                row_gap: Val::Px(10.0),
+                                flex_direction: FlexDirection::Column,
+                                align_items: AlignItems::FlexStart,
+                                ..default()
+                            },
+                            BorderColor(Color::srgb(0.22, 0.22, 0.25)),
+                            BackgroundColor(MENU_PANEL_BG),
+                        ))
+                        .with_children(|popup| {
+                            popup.spawn(white_text("Rules", 24.0));
+                            popup.spawn(menu_text("1. Reach your goal side to win.", 16.0));
+                            popup.spawn(menu_text(
+                                "2. On each turn, move one pawn OR place one fence.",
+                                16.0,
+                            ));
+                            popup.spawn(menu_text(
+                                "3. Fences block 3 edges and cannot trap any player.",
+                                16.0,
+                            ));
+                            popup.spawn(menu_text(
+                                "4. If blocked by a pawn, jump over it or sidestep when needed.",
+                                16.0,
+                            ));
+                            popup
+                                .spawn(button_bundle(
+                                    MenuSettingsCloseButton,
+                                    button_node(120.0, 36.0, 1.0),
+                                    NORMAL_BUTTON,
+                                ))
+                                .with_children(|button| {
+                                    button.spawn(white_text("Close", 16.0));
+                                });
+                        });
+                });
+
+            root
+                .spawn((
                     MenuSettingsPopup,
                     Node {
                         width: Val::Percent(100.0),
@@ -303,6 +366,7 @@ pub(super) fn setup_start_menu(
                                 row_gap: Val::Px(12.0),
                                 flex_direction: FlexDirection::Column,
                                 align_items: AlignItems::Stretch,
+                                min_height: Val::Px(380.0),
                                 ..default()
                             },
                             BorderColor(Color::srgb(0.22, 0.22, 0.25)),
@@ -310,24 +374,121 @@ pub(super) fn setup_start_menu(
                         ))
                         .with_children(|popup| {
                             popup.spawn(white_text("Settings", 24.0));
-                            spawn_sound_slider_row(
-                                popup,
-                                "Master Volume",
-                                SoundSliderKind::Master,
-                                app_settings.audio.master,
-                            );
-                            spawn_sound_slider_row(
-                                popup,
-                                "Music Volume",
-                                SoundSliderKind::Music,
-                                app_settings.audio.music,
-                            );
-                            spawn_sound_slider_row(
-                                popup,
-                                "Effects Volume",
-                                SoundSliderKind::Effects,
-                                app_settings.audio.effects,
-                            );
+
+                            popup
+                                .spawn(Node {
+                                    width: Val::Percent(100.0),
+                                    height: Val::Px(40.0),
+                                    flex_direction: FlexDirection::Row,
+                                    column_gap: Val::Px(8.0),
+                                    ..default()
+                                })
+                                .with_children(|tabs| {
+                                    tabs.spawn((
+                                        Button,
+                                        SettingsTabButton {
+                                            tab: SettingsTab::Sound,
+                                        },
+                                        Node {
+                                            width: Val::Px(120.0),
+                                            height: Val::Percent(100.0),
+                                            justify_content: JustifyContent::Center,
+                                            align_items: AlignItems::Center,
+                                            ..default()
+                                        },
+                                        BackgroundColor(TAB_ACTIVE),
+                                    ))
+                                    .with_children(|tab| {
+                                        tab.spawn(white_text("Sound", 16.0));
+                                    });
+
+                                    tabs.spawn((
+                                        Button,
+                                        SettingsTabButton {
+                                            tab: SettingsTab::Controls,
+                                        },
+                                        Node {
+                                            width: Val::Px(120.0),
+                                            height: Val::Percent(100.0),
+                                            justify_content: JustifyContent::Center,
+                                            align_items: AlignItems::Center,
+                                            ..default()
+                                        },
+                                        BackgroundColor(TAB_INACTIVE),
+                                    ))
+                                    .with_children(|tab| {
+                                        tab.spawn(white_text("Controls", 16.0));
+                                    });
+                                });
+
+                            popup
+                                .spawn((
+                                    SettingsTabContent {
+                                        tab: SettingsTab::Sound,
+                                    },
+                                    Node {
+                                        width: Val::Percent(100.0),
+                                        flex_direction: FlexDirection::Column,
+                                        row_gap: Val::Px(12.0),
+                                        ..default()
+                                    },
+                                ))
+                                .with_children(|content| {
+                                    spawn_sound_slider_row(
+                                        content,
+                                        "Master Volume",
+                                        SoundSliderKind::Master,
+                                        app_settings.audio.master,
+                                    );
+                                    spawn_sound_slider_row(
+                                        content,
+                                        "Music Volume",
+                                        SoundSliderKind::Music,
+                                        app_settings.audio.music,
+                                    );
+                                    spawn_sound_slider_row(
+                                        content,
+                                        "Effects Volume",
+                                        SoundSliderKind::Effects,
+                                        app_settings.audio.effects,
+                                    );
+                                });
+
+                            popup
+                                .spawn((
+                                    SettingsTabContent {
+                                        tab: SettingsTab::Controls,
+                                    },
+                                    Node {
+                                        width: Val::Percent(100.0),
+                                        flex_direction: FlexDirection::Column,
+                                        row_gap: Val::Px(10.0),
+                                        display: Display::None,
+                                        ..default()
+                                    },
+                                ))
+                                .with_children(|content| {
+                                    content.spawn(menu_text("Click a binding, then press a key.", 16.0));
+                                    spawn_control_binding_row(
+                                        content,
+                                        "Toggle Fence Mode",
+                                        ControlBindingKind::ToggleFenceMode,
+                                        app_settings.controls.toggle_fence_mode_label(),
+                                    );
+                                    spawn_control_binding_row(
+                                        content,
+                                        "Cycle Fence Shape",
+                                        ControlBindingKind::CycleFenceShape,
+                                        app_settings.controls.cycle_fence_shape_label(),
+                                    );
+                                    spawn_control_binding_row(
+                                        content,
+                                        "Rotate Fence",
+                                        ControlBindingKind::RotateFenceOrientation,
+                                        app_settings.controls.rotate_fence_orientation_label(),
+                                    );
+                                });
+
                             popup
                                 .spawn(button_bundle(
                                     MenuSettingsCloseButton,
@@ -353,6 +514,7 @@ pub(super) fn cleanup_start_menu(
 
 pub(super) fn handle_main_menu_action_buttons(
     mut menu: ResMut<MenuSelection>,
+    mut settings_ui: ResMut<SettingsUiState>,
     mut exit_events: EventWriter<AppExit>,
     mut interactions: Query<
         (&Interaction, &MainMenuActionButton, &mut BackgroundColor),
@@ -367,27 +529,45 @@ pub(super) fn handle_main_menu_action_buttons(
                     menu.game_mode = StartGameMode::Local;
                     menu.screen = MenuScreen::Setup;
                     menu.show_authors_popup = false;
+                    menu.show_rules_popup = false;
                     menu.show_settings_popup = false;
                     menu.address_focused = false;
+                    settings_ui.pending_control_binding = None;
                 }
                 MainMenuAction::NetworkGame => {
                     menu.game_mode = StartGameMode::Network;
                     menu.screen = MenuScreen::Setup;
                     menu.show_authors_popup = false;
+                    menu.show_rules_popup = false;
                     menu.show_settings_popup = false;
                     menu.address_focused = false;
                     if matches!(menu.net_mode, NetMode::Local) {
                         menu.net_mode = NetMode::Host;
                     }
+                    settings_ui.pending_control_binding = None;
                 }
                 MainMenuAction::Settings => {
                     menu.show_settings_popup = !menu.show_settings_popup;
                     menu.show_authors_popup = false;
+                    menu.show_rules_popup = false;
                     menu.address_focused = false;
+                    if menu.show_settings_popup {
+                        settings_ui.active_tab = SettingsTab::Sound;
+                        settings_ui.pending_control_binding = None;
+                    }
+                }
+                MainMenuAction::Rules => {
+                    menu.show_rules_popup = !menu.show_rules_popup;
+                    menu.show_settings_popup = false;
+                    menu.show_authors_popup = false;
+                    menu.address_focused = false;
+                    settings_ui.pending_control_binding = None;
                 }
                 MainMenuAction::Authors => {
                     menu.show_authors_popup = !menu.show_authors_popup;
                     menu.show_settings_popup = false;
+                    menu.show_rules_popup = false;
+                    settings_ui.pending_control_binding = None;
                 }
                 MainMenuAction::Quit => {
                     exit_events.write(AppExit::Success);
@@ -400,6 +580,7 @@ pub(super) fn handle_main_menu_action_buttons(
 
 pub(super) fn handle_back_to_mode_button(
     mut menu: ResMut<MenuSelection>,
+    mut settings_ui: ResMut<SettingsUiState>,
     mut interactions: Query<
         (&Interaction, &mut BackgroundColor),
         (Changed<Interaction>, With<BackToModeButton>),
@@ -411,7 +592,9 @@ pub(super) fn handle_back_to_mode_button(
             menu.screen = MenuScreen::ModeSelect;
             menu.address_focused = false;
             menu.show_authors_popup = false;
+            menu.show_rules_popup = false;
             menu.show_settings_popup = false;
+            settings_ui.pending_control_binding = None;
         }
         *color = neutral_button_color(interaction).into();
     }
@@ -419,6 +602,7 @@ pub(super) fn handle_back_to_mode_button(
 
 pub(super) fn handle_menu_settings_close_button(
     mut menu: ResMut<MenuSelection>,
+    mut settings_ui: ResMut<SettingsUiState>,
     mut interactions: Query<
         (&Interaction, &mut BackgroundColor),
         (Changed<Interaction>, With<MenuSettingsCloseButton>),
@@ -429,8 +613,116 @@ pub(super) fn handle_menu_settings_close_button(
         if interaction == Interaction::Pressed {
             menu.show_settings_popup = false;
             menu.show_authors_popup = false;
+            menu.show_rules_popup = false;
+            settings_ui.active_tab = SettingsTab::Sound;
+            settings_ui.pending_control_binding = None;
         }
         *color = neutral_button_color(interaction).into();
+    }
+}
+
+pub(super) fn handle_menu_settings_tab_buttons(
+    menu: Res<MenuSelection>,
+    mut settings_ui: ResMut<SettingsUiState>,
+    mut tab_interactions: Query<
+        (&Interaction, &SettingsTabButton),
+        (Changed<Interaction>, With<Button>),
+    >,
+) {
+    if !menu.show_settings_popup {
+        return;
+    }
+
+    for (interaction, tab_button) in &mut tab_interactions {
+        if *interaction == Interaction::Pressed {
+            settings_ui.active_tab = tab_button.tab;
+        }
+    }
+}
+
+pub(super) fn handle_menu_control_binding_buttons(
+    menu: Res<MenuSelection>,
+    mut settings_ui: ResMut<SettingsUiState>,
+    interactions: Query<(&Interaction, &ControlBindingButton), (Changed<Interaction>, With<Button>)>,
+) {
+    if !menu.show_settings_popup || settings_ui.active_tab != SettingsTab::Controls {
+        return;
+    }
+
+    for (interaction, button) in &interactions {
+        if *interaction == Interaction::Pressed {
+            settings_ui.pending_control_binding = Some(button.kind);
+        }
+    }
+}
+
+pub(super) fn handle_menu_control_binding_capture(
+    keys: Res<ButtonInput<KeyCode>>,
+    menu: Res<MenuSelection>,
+    mut settings_ui: ResMut<SettingsUiState>,
+    mut app_settings: ResMut<AppSettings>,
+) {
+    if !menu.show_settings_popup || settings_ui.active_tab != SettingsTab::Controls {
+        return;
+    }
+
+    let Some(kind) = settings_ui.pending_control_binding else {
+        return;
+    };
+
+    for key in keys.get_just_pressed() {
+        let changed = apply_control_binding(&mut app_settings, kind, *key);
+        settings_ui.pending_control_binding = None;
+        if changed {
+            let _ = settings::save_settings_to_disk(app_settings.clone());
+        }
+        break;
+    }
+}
+
+pub(super) fn sync_menu_control_binding_texts(
+    app_settings: Res<AppSettings>,
+    settings_ui: Res<SettingsUiState>,
+    mut texts: Query<(&ControlBindingValueText, &mut Text)>,
+) {
+    if !app_settings.is_changed() && !settings_ui.is_changed() {
+        return;
+    }
+
+    for (value_text, mut text) in &mut texts {
+        if settings_ui.pending_control_binding == Some(value_text.kind)
+            && settings_ui.active_tab == SettingsTab::Controls
+        {
+            *text = Text::new("Press key...");
+        } else {
+            *text = Text::new(control_binding_label(&app_settings, value_text.kind));
+        }
+    }
+}
+
+pub(super) fn sync_menu_settings_tab_visibility(
+    settings_ui: Res<SettingsUiState>,
+    mut tab_button_query: Query<(&SettingsTabButton, &mut BackgroundColor), With<Button>>,
+    mut tab_content_query: Query<(&SettingsTabContent, &mut Node)>,
+) {
+    if !settings_ui.is_changed() {
+        return;
+    }
+
+    for (tab_button, mut tab_color) in &mut tab_button_query {
+        *tab_color = if tab_button.tab == settings_ui.active_tab {
+            TAB_ACTIVE.into()
+        } else {
+            TAB_INACTIVE.into()
+        };
+    }
+
+    for (tab_content, mut node) in &mut tab_content_query {
+        node.display = if tab_content.tab == settings_ui.active_tab {
+            Display::Flex
+        } else {
+            Display::None
+        };
     }
 }
 
@@ -687,6 +979,7 @@ pub(super) fn sync_menu_layout_visibility(
         Option<&MenuScreenModeSelect>,
         Option<&MenuScreenSetup>,
         Option<&AuthorsPopup>,
+        Option<&RulesPopup>,
         Option<&MenuSettingsPopup>,
         Option<&LocalOnly>,
         Option<&NetworkOnly>,
@@ -697,10 +990,11 @@ pub(super) fn sync_menu_layout_visibility(
         return;
     }
 
-    for (mode_screen, setup_screen, authors_popup, settings_popup, local_only, network_only, mut node) in &mut sections {
+    for (mode_screen, setup_screen, authors_popup, rules_popup, settings_popup, local_only, network_only, mut node) in &mut sections {
         if mode_screen.is_some() {
             node.display = if menu.screen == MenuScreen::ModeSelect
                 && !menu.show_authors_popup
+                && !menu.show_rules_popup
                 && !menu.show_settings_popup
             {
                 Display::Flex
@@ -715,6 +1009,12 @@ pub(super) fn sync_menu_layout_visibility(
             };
         } else if authors_popup.is_some() {
             node.display = if menu.screen == MenuScreen::ModeSelect && menu.show_authors_popup {
+                Display::Flex
+            } else {
+                Display::None
+            };
+        } else if rules_popup.is_some() {
+            node.display = if menu.screen == MenuScreen::ModeSelect && menu.show_rules_popup {
                 Display::Flex
             } else {
                 Display::None
@@ -745,6 +1045,7 @@ pub(super) fn sync_menu_layout_visibility(
 
 pub(super) fn sync_menu_button_visuals(
     menu: Res<MenuSelection>,
+    settings_ui: Res<SettingsUiState>,
     net_runtime: Res<NetRuntime>,
     mut option_buttons: Query<
         (
@@ -757,6 +1058,7 @@ pub(super) fn sync_menu_button_visuals(
             Option<&MainMenuActionButton>,
             Option<&NetworkModeButton>,
             Option<&NetworkAddressInputButton>,
+            Option<&ControlBindingButton>,
             &mut BackgroundColor,
         ),
         With<Button>,
@@ -777,6 +1079,7 @@ pub(super) fn sync_menu_button_visuals(
         menu_action,
         network_mode,
         address_input,
+        control_binding,
         mut color,
     ) in &mut option_buttons
     {
@@ -797,6 +1100,12 @@ pub(super) fn sync_menu_button_visuals(
             selected_button_color(button.mode == menu.net_mode, *interaction).into()
         } else if address_input.is_some() {
             selected_button_color(menu.address_focused, *interaction).into()
+        } else if let Some(binding) = control_binding {
+            selected_button_color(
+                settings_ui.pending_control_binding == Some(binding.kind),
+                *interaction,
+            )
+            .into()
         } else {
             *color
         };
@@ -817,6 +1126,30 @@ pub(super) fn sync_menu_button_visuals(
                     "Start Game"
                 };
             *text = Text::new(label);
+        }
+    }
+}
+
+fn apply_control_binding(
+    app_settings: &mut AppSettings,
+    binding_kind: ControlBindingKind,
+    key: KeyCode,
+) -> bool {
+    match binding_kind {
+        ControlBindingKind::ToggleFenceMode => app_settings.controls.set_toggle_fence_mode_key(key),
+        ControlBindingKind::CycleFenceShape => app_settings.controls.set_cycle_fence_shape_key(key),
+        ControlBindingKind::RotateFenceOrientation => {
+            app_settings.controls.set_rotate_fence_orientation_key(key)
+        }
+    }
+}
+
+fn control_binding_label(app_settings: &AppSettings, binding_kind: ControlBindingKind) -> &'static str {
+    match binding_kind {
+        ControlBindingKind::ToggleFenceMode => app_settings.controls.toggle_fence_mode_label(),
+        ControlBindingKind::CycleFenceShape => app_settings.controls.cycle_fence_shape_label(),
+        ControlBindingKind::RotateFenceOrientation => {
+            app_settings.controls.rotate_fence_orientation_label()
         }
     }
 }

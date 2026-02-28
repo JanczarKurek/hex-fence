@@ -6,15 +6,16 @@ use crate::game::state::TurnState;
 use crate::settings::{self, AppSettings};
 
 use super::components::{
-    ExitButton, InGameUiRoot, RematchButton, RematchPanel, SettingsPopup, SettingsTab,
-    SettingsTabButton, SettingsTabContent, SettingsToggleButton, SettingsUiState, SoundSliderFill,
-    SoundSliderKind, SoundSliderTrack, SoundSliderValueText,
+    ControlBindingButton, ControlBindingKind, ControlBindingValueText, ExitButton, InGameUiRoot,
+    RematchButton, RematchPanel, SettingsPopup, SettingsTab, SettingsTabButton,
+    SettingsTabContent, SettingsToggleButton, SettingsUiState, SoundSliderFill, SoundSliderKind,
+    SoundSliderTrack, SoundSliderValueText,
 };
 use super::styles::{
     NORMAL_BUTTON, PANEL_BG, TAB_ACTIVE, TAB_INACTIVE, button_bundle, button_node,
     neutral_button_color, white_text,
 };
-use super::widgets::spawn_sound_slider_row;
+use super::widgets::{spawn_control_binding_row, spawn_sound_slider_row};
 
 pub(super) fn setup_in_game_ui(
     mut commands: Commands,
@@ -145,6 +146,24 @@ pub(super) fn setup_in_game_ui(
                             .with_children(|tab| {
                                 tab.spawn(white_text("Sound", 16.0));
                             });
+
+                            tabs.spawn((
+                                Button,
+                                SettingsTabButton {
+                                    tab: SettingsTab::Controls,
+                                },
+                                Node {
+                                    width: Val::Px(140.0),
+                                    height: Val::Percent(100.0),
+                                    justify_content: JustifyContent::Center,
+                                    align_items: AlignItems::Center,
+                                    ..default()
+                                },
+                                BackgroundColor(TAB_INACTIVE),
+                            ))
+                            .with_children(|tab| {
+                                tab.spawn(white_text("Controls", 16.0));
+                            });
                         });
 
                     popup
@@ -183,6 +202,44 @@ pub(super) fn setup_in_game_ui(
                                 app_settings.audio.effects,
                             );
                         });
+
+                    popup
+                        .spawn((
+                            SettingsTabContent {
+                                tab: SettingsTab::Controls,
+                            },
+                            Node {
+                                width: Val::Percent(100.0),
+                                height: Val::Percent(100.0),
+                                padding: UiRect::all(Val::Px(8.0)),
+                                flex_direction: FlexDirection::Column,
+                                row_gap: Val::Px(10.0),
+                                display: Display::None,
+                                ..default()
+                            },
+                        ))
+                        .with_children(|content| {
+                            content.spawn(white_text("Controls", 22.0));
+                            content.spawn(white_text("Click a binding, then press a key.", 16.0));
+                            spawn_control_binding_row(
+                                content,
+                                "Toggle Fence Mode",
+                                ControlBindingKind::ToggleFenceMode,
+                                app_settings.controls.toggle_fence_mode_label(),
+                            );
+                            spawn_control_binding_row(
+                                content,
+                                "Cycle Fence Shape",
+                                ControlBindingKind::CycleFenceShape,
+                                app_settings.controls.cycle_fence_shape_label(),
+                            );
+                            spawn_control_binding_row(
+                                content,
+                                "Rotate Fence",
+                                ControlBindingKind::RotateFenceOrientation,
+                                app_settings.controls.rotate_fence_orientation_label(),
+                            );
+                        });
                 });
         });
 }
@@ -212,6 +269,7 @@ pub(super) fn cleanup_in_game_ui(
     if settings_ui.open {
         let _ = settings::save_settings_to_disk(app_settings.clone());
     }
+    settings_ui.pending_control_binding = None;
     for entity in &roots {
         commands.entity(entity).despawn();
     }
@@ -231,6 +289,9 @@ pub(super) fn handle_settings_toggle_button(
         if interaction == Interaction::Pressed {
             let was_open = settings_ui.open;
             settings_ui.open = !settings_ui.open;
+            if was_open && !settings_ui.open {
+                settings_ui.pending_control_binding = None;
+            }
             if was_open && !settings_ui.open {
                 let _ = settings::save_settings_to_disk(app_settings.clone());
             }
@@ -284,7 +345,79 @@ pub(super) fn handle_tab_buttons(
     for (interaction, tab_button) in &mut tab_interactions {
         if *interaction == Interaction::Pressed {
             settings_ui.active_tab = tab_button.tab;
+            settings_ui.pending_control_binding = None;
         }
+    }
+}
+
+pub(super) fn handle_control_binding_buttons(
+    mut settings_ui: ResMut<SettingsUiState>,
+    interactions: Query<(&Interaction, &ControlBindingButton), (Changed<Interaction>, With<Button>)>,
+) {
+    if !settings_ui.open || settings_ui.active_tab != SettingsTab::Controls {
+        return;
+    }
+
+    for (interaction, button) in &interactions {
+        if *interaction == Interaction::Pressed {
+            settings_ui.pending_control_binding = Some(button.kind);
+        }
+    }
+}
+
+pub(super) fn handle_control_binding_capture(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut settings_ui: ResMut<SettingsUiState>,
+    mut app_settings: ResMut<AppSettings>,
+) {
+    if !settings_ui.open || settings_ui.active_tab != SettingsTab::Controls {
+        return;
+    }
+
+    let Some(kind) = settings_ui.pending_control_binding else {
+        return;
+    };
+
+    for key in keys.get_just_pressed() {
+        let changed = apply_control_binding(&mut app_settings, kind, *key);
+        settings_ui.pending_control_binding = None;
+        if changed {
+            let _ = settings::save_settings_to_disk(app_settings.clone());
+        }
+        break;
+    }
+}
+
+pub(super) fn sync_control_binding_texts(
+    app_settings: Res<AppSettings>,
+    settings_ui: Res<SettingsUiState>,
+    mut texts: Query<(&ControlBindingValueText, &mut Text)>,
+) {
+    if !app_settings.is_changed() && !settings_ui.is_changed() {
+        return;
+    }
+
+    for (value_text, mut text) in &mut texts {
+        if settings_ui.pending_control_binding == Some(value_text.kind)
+            && settings_ui.active_tab == SettingsTab::Controls
+        {
+            *text = Text::new("Press key...");
+        } else {
+            *text = Text::new(control_binding_label(&app_settings, value_text.kind));
+        }
+    }
+}
+
+pub(super) fn sync_control_binding_button_visuals(
+    settings_ui: Res<SettingsUiState>,
+    mut buttons: Query<(&ControlBindingButton, &Interaction, &mut BackgroundColor), With<Button>>,
+) {
+    for (button, interaction, mut color) in &mut buttons {
+        *color = if settings_ui.pending_control_binding == Some(button.kind) {
+            TAB_ACTIVE.into()
+        } else {
+            neutral_button_color(*interaction).into()
+        };
     }
 }
 
@@ -362,5 +495,29 @@ pub(super) fn sync_sound_slider_visuals(
     for (value_text, mut text) in &mut value_text_query {
         let value = (value_text.kind.value(&app_settings) * 100.0).round() as i32;
         *text = Text::new(format!("{:>3}%", value));
+    }
+}
+
+fn apply_control_binding(
+    app_settings: &mut AppSettings,
+    binding_kind: ControlBindingKind,
+    key: KeyCode,
+) -> bool {
+    match binding_kind {
+        ControlBindingKind::ToggleFenceMode => app_settings.controls.set_toggle_fence_mode_key(key),
+        ControlBindingKind::CycleFenceShape => app_settings.controls.set_cycle_fence_shape_key(key),
+        ControlBindingKind::RotateFenceOrientation => {
+            app_settings.controls.set_rotate_fence_orientation_key(key)
+        }
+    }
+}
+
+fn control_binding_label(app_settings: &AppSettings, binding_kind: ControlBindingKind) -> &'static str {
+    match binding_kind {
+        ControlBindingKind::ToggleFenceMode => app_settings.controls.toggle_fence_mode_label(),
+        ControlBindingKind::CycleFenceShape => app_settings.controls.cycle_fence_shape_label(),
+        ControlBindingKind::RotateFenceOrientation => {
+            app_settings.controls.rotate_fence_orientation_label()
+        }
     }
 }

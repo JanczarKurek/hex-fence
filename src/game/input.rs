@@ -5,6 +5,7 @@ use crate::app_state::GameConfig;
 use crate::camera::MainCamera;
 use crate::hex_grid::AxialCoord;
 use crate::network::{NetConfig, NetRuntime};
+use crate::settings::AppSettings;
 
 use super::actions::{ActionSource, GameActionRequest};
 use super::audio::GameSoundEvent;
@@ -19,6 +20,7 @@ pub fn move_current_pawn_on_click(
     camera_query: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
     turn_state: Res<TurnState>,
     game_config: Res<GameConfig>,
+    app_settings: Res<AppSettings>,
     net_config: Res<NetConfig>,
     net_runtime: Res<NetRuntime>,
     mut selection: ResMut<PawnSelection>,
@@ -26,14 +28,18 @@ pub fn move_current_pawn_on_click(
     mut action_requests: EventWriter<GameActionRequest>,
     mut sound_events: EventWriter<GameSoundEvent>,
 ) {
-    if keys.just_pressed(KeyCode::KeyF) {
+    let toggle_key = app_settings.controls.toggle_fence_mode_key();
+    let cycle_shape_key = app_settings.controls.cycle_fence_shape_key();
+    let rotate_key = app_settings.controls.rotate_fence_orientation_key();
+
+    if keys.just_pressed(toggle_key) {
         fence_placement.enabled = !fence_placement.enabled;
         selection.current_selected = false;
     }
-    if keys.just_pressed(KeyCode::KeyQ) {
+    if keys.just_pressed(cycle_shape_key) {
         fence_placement.shape = fence_placement.shape.next();
     }
-    if keys.just_pressed(KeyCode::KeyE) {
+    if keys.just_pressed(rotate_key) {
         fence_placement.orientation = (fence_placement.orientation + 1) % 6;
     }
 
