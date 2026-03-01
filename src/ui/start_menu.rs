@@ -6,6 +6,8 @@ use crate::app_state::{AiStrategy, AppPhase, GameConfig, PlayerControl};
 use crate::network::{NetConfig, NetMode, NetRuntime};
 use crate::settings::{self, AppSettings, LastNetMode};
 
+use crate::game::despawn_all;
+
 use super::components::{
     AiCooldownButton, AiPlayerCountButton, AiStrategyButton, AuthorsPopup, BackToModeButton,
     BoardSizeButton, ConnectedPlayersText, ControlBindingButton, ControlBindingKind,
@@ -507,9 +509,7 @@ pub(super) fn cleanup_start_menu(
     mut commands: Commands,
     roots: Query<Entity, With<StartMenuRoot>>,
 ) {
-    for entity in &roots {
-        commands.entity(entity).despawn();
-    }
+    despawn_all!(commands, roots);
 }
 
 pub(super) fn handle_main_menu_action_buttons(

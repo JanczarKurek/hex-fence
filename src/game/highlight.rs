@@ -9,6 +9,8 @@ use super::components::MoveHighlight;
 use super::selection::PawnSelection;
 use super::state::TurnState;
 
+use super::utils::despawn_all;
+
 pub fn update_move_highlights(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -21,9 +23,7 @@ pub fn update_move_highlights(
         return;
     }
 
-    for entity in &existing {
-        commands.entity(entity).despawn();
-    }
+    despawn_all!(commands, existing);
 
     if !selection.current_selected || turn_state.winner.is_some() {
         return;

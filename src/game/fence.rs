@@ -10,6 +10,8 @@ use crate::hex_grid::{AxialCoord, TILE_RADIUS};
 use super::state::EdgeKey;
 use super::state::TurnState;
 
+use super::utils::despawn_all;
+
 #[derive(Resource)]
 pub struct FencePlacementState {
     pub enabled: bool,
@@ -135,9 +137,7 @@ pub fn update_fence_preview(
     fence_placement: Res<FencePlacementState>,
     existing_preview: Query<Entity, With<FencePreviewSegment>>,
 ) {
-    for entity in &existing_preview {
-        commands.entity(entity).despawn();
-    }
+    despawn_all!(commands, existing_preview);
 
     if !fence_placement.enabled || turn_state.winner.is_some() {
         return;

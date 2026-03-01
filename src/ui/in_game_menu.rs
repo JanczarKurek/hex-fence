@@ -5,6 +5,8 @@ use crate::app_state::{AppPhase, RematchRequested};
 use crate::game::state::TurnState;
 use crate::settings::{self, AppSettings};
 
+use crate::game::despawn_all;
+
 use super::components::{
     ControlBindingButton, ControlBindingKind, ControlBindingValueText, ExitButton, InGameUiRoot,
     RematchButton, RematchPanel, SettingsPopup, SettingsTab, SettingsTabButton,
@@ -270,9 +272,7 @@ pub(super) fn cleanup_in_game_ui(
         let _ = settings::save_settings_to_disk(app_settings.clone());
     }
     settings_ui.pending_control_binding = None;
-    for entity in &roots {
-        commands.entity(entity).despawn();
-    }
+    despawn_all!(commands, roots);
     settings_ui.open = false;
 }
 

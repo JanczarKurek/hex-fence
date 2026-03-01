@@ -7,6 +7,8 @@ use crate::app_state::{AppPhase, GameConfig};
 use crate::game::{HoveredGoalPreview, state::TurnState};
 use crate::hex_grid::{AxialCoord, TILE_RADIUS};
 
+use crate::game::despawn_all;
+
 pub struct BoardPlugin;
 
 #[derive(Component)]
@@ -54,9 +56,7 @@ fn spawn_board(
 }
 
 fn cleanup_board(mut commands: Commands, board_tiles: Query<Entity, With<BoardTile>>) {
-    for entity in &board_tiles {
-        commands.entity(entity).despawn();
-    }
+    despawn_all!(commands, board_tiles);
 }
 
 fn update_goal_preview(

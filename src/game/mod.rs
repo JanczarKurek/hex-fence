@@ -12,6 +12,7 @@ mod selection;
 mod spawn;
 pub mod state;
 mod ui;
+mod utils;
 
 use crate::app_state::{AppPhase, GameConfig, StartRematch};
 use bevy::prelude::*;
@@ -21,6 +22,8 @@ use components::{InGameHudUi, MoveHighlight, Pawn, PlayerPanelUiState};
 use fence::FencePlacementState;
 use selection::PawnSelection;
 use state::TurnState;
+
+pub(crate) use utils::despawn_all;
 
 pub struct GamePlugin;
 pub use components::HoveredGoalPreview;
@@ -75,6 +78,19 @@ impl Plugin for GamePlugin {
     }
 }
 
+fn _cleanup_board(
+    commands: &mut Commands,
+    pawns: Query<Entity, With<Pawn>>,
+    fence_segments: Query<Entity, With<fence::FenceSegment>>,
+    fence_previews: Query<Entity, With<fence::FencePreviewSegment>>,
+    move_highlights: Query<Entity, With<MoveHighlight>>,
+) {
+    despawn_all!(commands, pawns);
+    despawn_all!(commands, fence_segments);
+    despawn_all!(commands, fence_previews);
+    despawn_all!(commands, move_highlights);
+}
+
 fn cleanup_in_game_entities(
     mut commands: Commands,
     pawns: Query<Entity, With<Pawn>>,
@@ -83,18 +99,7 @@ fn cleanup_in_game_entities(
     move_highlights: Query<Entity, With<MoveHighlight>>,
     hud_entities: Query<Entity, With<InGameHudUi>>,
 ) {
-    for entity in &pawns {
-        commands.entity(entity).despawn();
-    }
-    for entity in &fence_segments {
-        commands.entity(entity).despawn();
-    }
-    for entity in &fence_previews {
-        commands.entity(entity).despawn();
-    }
-    for entity in &move_highlights {
-        commands.entity(entity).despawn();
-    }
+    _cleanup_board(&mut commands, pawns, fence_segments, fence_previews, move_highlights);
     for entity in &hud_entities {
         commands.entity(entity).despawn_related::<Children>();
         commands.entity(entity).despawn();
@@ -124,18 +129,7 @@ fn handle_start_rematch(
         return;
     }
 
-    for entity in &pawns {
-        commands.entity(entity).despawn();
-    }
-    for entity in &fence_segments {
-        commands.entity(entity).despawn();
-    }
-    for entity in &fence_previews {
-        commands.entity(entity).despawn();
-    }
-    for entity in &move_highlights {
-        commands.entity(entity).despawn();
-    }
+    _cleanup_board(&mut commands, pawns, fence_segments, fence_previews, move_highlights);
 
     *turn_state = TurnState::new(game_config.player_count, game_config.board_radius);
     selection.current_selected = false;
