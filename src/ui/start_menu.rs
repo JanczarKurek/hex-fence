@@ -528,19 +528,11 @@ pub(super) fn handle_main_menu_action_buttons(
                 MainMenuAction::LocalGame => {
                     menu.game_mode = StartGameMode::Local;
                     menu.screen = MenuScreen::Setup;
-                    menu.show_authors_popup = false;
-                    menu.show_rules_popup = false;
-                    menu.show_settings_popup = false;
-                    menu.address_focused = false;
                     settings_ui.pending_control_binding = None;
                 }
                 MainMenuAction::NetworkGame => {
                     menu.game_mode = StartGameMode::Network;
                     menu.screen = MenuScreen::Setup;
-                    menu.show_authors_popup = false;
-                    menu.show_rules_popup = false;
-                    menu.show_settings_popup = false;
-                    menu.address_focused = false;
                     if matches!(menu.net_mode, NetMode::Local) {
                         menu.net_mode = NetMode::Host;
                     }
@@ -548,9 +540,6 @@ pub(super) fn handle_main_menu_action_buttons(
                 }
                 MainMenuAction::Settings => {
                     menu.show_settings_popup = !menu.show_settings_popup;
-                    menu.show_authors_popup = false;
-                    menu.show_rules_popup = false;
-                    menu.address_focused = false;
                     if menu.show_settings_popup {
                         settings_ui.active_tab = SettingsTab::Sound;
                         settings_ui.pending_control_binding = None;
@@ -558,15 +547,10 @@ pub(super) fn handle_main_menu_action_buttons(
                 }
                 MainMenuAction::Rules => {
                     menu.show_rules_popup = !menu.show_rules_popup;
-                    menu.show_settings_popup = false;
-                    menu.show_authors_popup = false;
-                    menu.address_focused = false;
                     settings_ui.pending_control_binding = None;
                 }
                 MainMenuAction::Authors => {
                     menu.show_authors_popup = !menu.show_authors_popup;
-                    menu.show_settings_popup = false;
-                    menu.show_rules_popup = false;
                     settings_ui.pending_control_binding = None;
                 }
                 MainMenuAction::Quit => {
