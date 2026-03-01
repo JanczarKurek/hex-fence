@@ -1,22 +1,26 @@
 use bevy::app::AppExit;
+use bevy::input::mouse::MouseWheel;
 use bevy::prelude::*;
+use bevy::ui::RelativeCursorPosition;
 use bevy_simple_text_input::{TextInput, TextInputInactive, TextInputValue};
 
-use crate::app_state::{AiStrategy, AppPhase, GameConfig, PlayerControl};
+use crate::app_state::{AiStrategy, AppPhase, GameConfig, PlayerColor, PlayerControl};
 use crate::network::{NetConfig, NetMode, NetRuntime};
 use crate::settings::{self, AppSettings, LastNetMode};
 
 use crate::game::despawn_all;
 
 use super::components::{
-    AiCooldownButton, AiPlayerCountButton, AiStrategyButton, AuthorsPopup, BackToModeButton,
-    BoardSizeButton, ConnectedPlayersText, ControlBindingButton, ControlBindingKind,
-    ControlBindingValueText, LocalOnly, MainMenuAction, MainMenuActionButton, MenuScreen,
+    AiCooldownButton, AuthorsPopup, BackToModeButton, BoardSizeButton, ConnectedPlayersText,
+    ControlBindingButton, ControlBindingKind, ControlBindingValueText, LobbyPlayerListScroll,
+    LocalOnly, MainMenuAction, MainMenuActionButton, MenuMainPanel, MenuScreen,
     MenuScreenModeSelect, MenuScreenSetup, MenuSelection, MenuSettingsCloseButton,
     MenuSettingsPopup, NetworkAddressInputButton, NetworkAddressInputField, NetworkConnectButton,
-    NetworkModeButton, NetworkOnly, PlayerCountButton, RulesPopup, SettingsTab, SettingsTabButton,
-    SettingsTabContent, SettingsUiState, SoundSliderFill, SoundSliderKind, SoundSliderTrack,
-    SoundSliderValueText, StartGameButton, StartGameButtonLabel, StartGameMode, StartMenuRoot,
+    NetworkModeButton, NetworkOnly, PlayerAiOnly, PlayerAiStrategyButton, PlayerColorButton,
+    PlayerControlButton, PlayerCountButton, PlayerSetupRow, RulesPopup, SettingsTab,
+    SettingsTabButton, SettingsTabContent, SettingsUiState, SoundSliderFill, SoundSliderKind,
+    SoundSliderTrack, SoundSliderValueText, StartGameButton, StartGameButtonLabel, StartGameMode,
+    StartMenuRoot,
 };
 use super::styles::{
     HOVERED_BUTTON, MENU_PANEL_BG, MENU_SELECTED, MENU_START, NORMAL_BUTTON, PRESSED_BUTTON,
@@ -24,8 +28,8 @@ use super::styles::{
     selected_button_color, white_text,
 };
 use super::widgets::{
-    spawn_ai_cooldown_row, spawn_ai_player_row, spawn_ai_strategy_row, spawn_choice_row,
-    spawn_control_binding_row, spawn_network_mode_row, spawn_player_row, spawn_sound_slider_row,
+    spawn_ai_cooldown_row, spawn_choice_row, spawn_control_binding_row, spawn_network_mode_row,
+    spawn_player_row, spawn_sound_slider_row,
 };
 
 const AI_COOLDOWN_CHOICES_MS: [u32; 5] = [250, 500, 1_000, 1_500, 2_000];
@@ -47,14 +51,10 @@ pub(super) fn setup_start_menu(
     };
     menu.board_radius = game_config.board_radius;
     menu.player_count = game_config.player_count;
-    menu.ai_player_count = game_config
-        .player_controls
-        .iter()
-        .take(game_config.player_count)
-        .filter(|control| control.is_ai())
-        .count();
+    menu.player_controls = game_config.player_controls;
+    menu.player_ai_strategies = game_config.player_ai_strategies;
+    menu.player_colors = game_config.player_colors;
     menu.ai_cooldown_ms = nearest_ai_cooldown_ms(game_config.ai_cooldown_seconds);
-    menu.ai_strategy = game_config.ai_strategy;
     menu.net_mode = net_config.mode;
     menu.net_address = net_config.address.clone();
     menu.address_focused = false;
@@ -75,6 +75,7 @@ pub(super) fn setup_start_menu(
         ))
         .with_children(|root| {
             root.spawn((
+                MenuMainPanel,
                 Node {
                     width: Val::Px(480.0),
                     max_width: Val::Percent(92.0),
@@ -145,26 +146,208 @@ pub(super) fn setup_start_menu(
                         step.spawn(menu_text("Board Size", 20.0));
                         spawn_choice_row(step, &[3, 4, 5, 6], menu.board_radius);
 
-                        step.spawn((LocalOnly, menu_text("Players", 20.0)));
-                        step.spawn((LocalOnly, Node::default()))
-                            .with_children(|local| {
-                                spawn_player_row(local, &[2, 3, 6], menu.player_count);
-                            });
-                        step.spawn((LocalOnly, menu_text("AI Players", 20.0)));
-                        step.spawn((LocalOnly, Node::default()))
-                            .with_children(|local| {
-                                spawn_ai_player_row(local, menu.ai_player_count);
-                            });
-                        step.spawn((LocalOnly, menu_text("AI Cooldown", 20.0)));
-                        step.spawn((LocalOnly, Node::default()))
-                            .with_children(|local| {
-                                spawn_ai_cooldown_row(local, menu.ai_cooldown_ms);
-                            });
-                        step.spawn((LocalOnly, menu_text("AI Type", 20.0)));
-                        step.spawn((LocalOnly, Node::default()))
-                            .with_children(|local| {
-                                spawn_ai_strategy_row(local, menu.ai_strategy);
-                            });
+                        step.spawn((LocalOnly, menu_text("Lobby Setup", 20.0)));
+                        step.spawn((
+                            LocalOnly,
+                            Node {
+                                width: Val::Percent(100.0),
+                                column_gap: Val::Px(12.0),
+                                flex_direction: FlexDirection::Row,
+                                align_items: AlignItems::FlexStart,
+                                ..default()
+                            },
+                        ))
+                        .with_children(|local| {
+                            local
+                                .spawn((
+                                    LobbyPlayerListScroll,
+                                    ScrollPosition::default(),
+                                    RelativeCursorPosition::default(),
+                                    Node {
+                                        width: Val::Percent(62.0),
+                                        height: Val::Px(430.0),
+                                        flex_direction: FlexDirection::Column,
+                                        row_gap: Val::Px(6.0),
+                                        overflow: Overflow::scroll_y(),
+                                        ..default()
+                                    },
+                                    BackgroundColor(Color::srgba(0.10, 0.11, 0.13, 0.8)),
+                                ))
+                                .with_children(|players| {
+                                    players
+                                        .spawn((Node {
+                                            width: Val::Percent(100.0),
+                                            padding: UiRect::bottom(Val::Px(6.0)),
+                                            ..default()
+                                        },))
+                                        .with_children(|header| {
+                                            header.spawn(menu_text("Players", 17.0));
+                                        });
+
+                                    for player_index in 0..6 {
+                                        players
+                                            .spawn((
+                                                PlayerSetupRow { player_index },
+                                                Node {
+                                                    width: Val::Percent(100.0),
+                                                    flex_direction: FlexDirection::Column,
+                                                    row_gap: Val::Px(6.0),
+                                                    padding: UiRect::all(Val::Px(8.0)),
+                                                    border: UiRect::all(Val::Px(1.0)),
+                                                    ..default()
+                                                },
+                                                BorderColor(Color::srgba(0.95, 0.95, 1.0, 0.1)),
+                                                BackgroundColor(Color::srgba(
+                                                    0.06, 0.07, 0.09, 0.92,
+                                                )),
+                                            ))
+                                            .with_children(|row| {
+                                                row.spawn(menu_text(
+                                                    format!("Player {}", player_index + 1),
+                                                    15.0,
+                                                ));
+
+                                                row.spawn(Node {
+                                                    width: Val::Percent(100.0),
+                                                    flex_direction: FlexDirection::Row,
+                                                    column_gap: Val::Px(6.0),
+                                                    ..default()
+                                                })
+                                                .with_children(|controls| {
+                                                    controls
+                                                        .spawn(button_bundle(
+                                                            PlayerControlButton {
+                                                                player_index,
+                                                                control: PlayerControl::Human,
+                                                            },
+                                                            button_node(82.0, 30.0, 1.0),
+                                                            NORMAL_BUTTON,
+                                                        ))
+                                                        .with_children(|button| {
+                                                            button.spawn(white_text("Human", 14.0));
+                                                        });
+                                                    controls
+                                                        .spawn(button_bundle(
+                                                            PlayerControlButton {
+                                                                player_index,
+                                                                control: PlayerControl::RandomAi,
+                                                            },
+                                                            button_node(72.0, 30.0, 1.0),
+                                                            NORMAL_BUTTON,
+                                                        ))
+                                                        .with_children(|button| {
+                                                            button.spawn(white_text("AI", 14.0));
+                                                        });
+                                                });
+
+                                                row.spawn((
+                                                    PlayerAiOnly { player_index },
+                                                    Node {
+                                                        width: Val::Percent(100.0),
+                                                        flex_direction: FlexDirection::Row,
+                                                        column_gap: Val::Px(6.0),
+                                                        ..default()
+                                                    },
+                                                ))
+                                                .with_children(|ai_row| {
+                                                    ai_row
+                                                        .spawn(button_bundle(
+                                                            PlayerAiStrategyButton {
+                                                                player_index,
+                                                                strategy: AiStrategy::Heuristic,
+                                                            },
+                                                            button_node(94.0, 28.0, 1.0),
+                                                            NORMAL_BUTTON,
+                                                        ))
+                                                        .with_children(|button| {
+                                                            button.spawn(white_text("H", 13.0));
+                                                        });
+                                                    ai_row
+                                                        .spawn(button_bundle(
+                                                            PlayerAiStrategyButton {
+                                                                player_index,
+                                                                strategy: AiStrategy::AlphaBeta,
+                                                            },
+                                                            button_node(94.0, 28.0, 1.0),
+                                                            NORMAL_BUTTON,
+                                                        ))
+                                                        .with_children(|button| {
+                                                            button.spawn(white_text("AB", 13.0));
+                                                        });
+                                                });
+
+                                                row.spawn(Node {
+                                                    width: Val::Percent(100.0),
+                                                    flex_direction: FlexDirection::Row,
+                                                    column_gap: Val::Px(4.0),
+                                                    flex_wrap: FlexWrap::Wrap,
+                                                    ..default()
+                                                })
+                                                .with_children(|colors| {
+                                                    for color in [
+                                                        PlayerColor::Red,
+                                                        PlayerColor::Blue,
+                                                        PlayerColor::Gold,
+                                                        PlayerColor::Teal,
+                                                        PlayerColor::Pink,
+                                                        PlayerColor::Orange,
+                                                    ] {
+                                                        colors
+                                                            .spawn((
+                                                                Button,
+                                                                PlayerColorButton {
+                                                                    player_index,
+                                                                    color,
+                                                                },
+                                                                Node {
+                                                                    width: Val::Px(28.0),
+                                                                    height: Val::Px(26.0),
+                                                                    justify_content:
+                                                                        JustifyContent::Center,
+                                                                    align_items: AlignItems::Center,
+                                                                    border: UiRect::all(Val::Px(
+                                                                        1.0,
+                                                                    )),
+                                                                    ..default()
+                                                                },
+                                                                BorderColor(Color::BLACK),
+                                                                BackgroundColor(color.color()),
+                                                            ))
+                                                            .with_children(|button| {
+                                                                button.spawn((
+                                                                    Text::new(color.short_label()),
+                                                                    TextFont::from_font_size(12.0),
+                                                                    TextColor(Color::BLACK),
+                                                                ));
+                                                            });
+                                                    }
+                                                });
+                                            });
+                                    }
+                                });
+
+                            local
+                                .spawn((
+                                    Node {
+                                        width: Val::Percent(38.0),
+                                        flex_direction: FlexDirection::Column,
+                                        row_gap: Val::Px(10.0),
+                                        ..default()
+                                    },
+                                    BackgroundColor(Color::srgba(0.08, 0.09, 0.11, 0.86)),
+                                ))
+                                .with_children(|controls| {
+                                    controls.spawn(menu_text("Global", 17.0));
+                                    controls.spawn(menu_text("Players", 16.0));
+                                    controls.spawn(Node::default()).with_children(|right| {
+                                        spawn_player_row(right, &[2, 3, 6], menu.player_count);
+                                    });
+                                    controls.spawn(menu_text("AI Cooldown", 16.0));
+                                    controls.spawn(Node::default()).with_children(|right| {
+                                        spawn_ai_cooldown_row(right, menu.ai_cooldown_ms);
+                                    });
+                                });
+                        });
 
                         step.spawn((NetworkOnly, menu_text("Role", 20.0)));
                         step.spawn((NetworkOnly, Node::default()))
@@ -237,272 +420,317 @@ pub(super) fn setup_start_menu(
                             button.spawn((StartGameButtonLabel, white_text("Start Game", 24.0)));
                         });
                     });
-
             });
 
-            root
-                .spawn((
-                    AuthorsPopup,
-                    Node {
-                        width: Val::Percent(100.0),
-                        height: Val::Percent(100.0),
-                        position_type: PositionType::Absolute,
-                        justify_content: JustifyContent::Center,
-                        align_items: AlignItems::Center,
-                        display: Display::None,
-                        ..default()
-                    },
-                    BackgroundColor(Color::srgba(0.02, 0.03, 0.04, 0.75)),
-                ))
-                .with_children(|overlay| {
-                    overlay
-                        .spawn((
-                            Node {
+            root.spawn((
+                AuthorsPopup,
+                Node {
+                    width: Val::Percent(100.0),
+                    height: Val::Percent(100.0),
+                    position_type: PositionType::Absolute,
+                    justify_content: JustifyContent::Center,
+                    align_items: AlignItems::Center,
+                    display: Display::None,
+                    ..default()
+                },
+                BackgroundColor(Color::srgba(0.02, 0.03, 0.04, 0.75)),
+            ))
+            .with_children(|overlay| {
+                overlay
+                    .spawn((
+                        Node {
+                            width: Val::Percent(100.0),
+                            max_width: Val::Px(360.0),
+                            padding: UiRect::all(Val::Px(16.0)),
+                            border: UiRect::all(Val::Px(2.0)),
+                            row_gap: Val::Px(10.0),
+                            flex_direction: FlexDirection::Column,
+                            align_items: AlignItems::FlexStart,
+                            ..default()
+                        },
+                        BorderColor(Color::srgb(0.22, 0.22, 0.25)),
+                        BackgroundColor(MENU_PANEL_BG),
+                    ))
+                    .with_children(|popup| {
+                        popup.spawn(white_text("Authors", 24.0));
+                        popup.spawn(menu_text("1. Codex", 17.0));
+                        popup.spawn(menu_text("2. Janczar Knurek ;)", 17.0));
+                        popup
+                            .spawn(button_bundle(
+                                MenuSettingsCloseButton,
+                                button_node(120.0, 36.0, 1.0),
+                                NORMAL_BUTTON,
+                            ))
+                            .with_children(|button| {
+                                button.spawn(white_text("Close", 16.0));
+                            });
+                    });
+            });
+
+            root.spawn((
+                RulesPopup,
+                Node {
+                    width: Val::Percent(100.0),
+                    height: Val::Percent(100.0),
+                    position_type: PositionType::Absolute,
+                    justify_content: JustifyContent::Center,
+                    align_items: AlignItems::Center,
+                    display: Display::None,
+                    ..default()
+                },
+                BackgroundColor(Color::srgba(0.02, 0.03, 0.04, 0.75)),
+            ))
+            .with_children(|overlay| {
+                overlay
+                    .spawn((
+                        Node {
+                            width: Val::Percent(100.0),
+                            max_width: Val::Px(480.0),
+                            padding: UiRect::all(Val::Px(16.0)),
+                            border: UiRect::all(Val::Px(2.0)),
+                            row_gap: Val::Px(10.0),
+                            flex_direction: FlexDirection::Column,
+                            align_items: AlignItems::FlexStart,
+                            ..default()
+                        },
+                        BorderColor(Color::srgb(0.22, 0.22, 0.25)),
+                        BackgroundColor(MENU_PANEL_BG),
+                    ))
+                    .with_children(|popup| {
+                        popup.spawn(white_text("Rules", 24.0));
+                        popup.spawn(menu_text("1. Reach your goal side to win.", 16.0));
+                        popup.spawn(menu_text(
+                            "2. On each turn, move one pawn OR place one fence.",
+                            16.0,
+                        ));
+                        popup.spawn(menu_text(
+                            "3. Fences block 3 edges and cannot trap any player.",
+                            16.0,
+                        ));
+                        popup.spawn(menu_text(
+                            "4. If blocked by a pawn, jump over it or sidestep when needed.",
+                            16.0,
+                        ));
+                        popup
+                            .spawn(button_bundle(
+                                MenuSettingsCloseButton,
+                                button_node(120.0, 36.0, 1.0),
+                                NORMAL_BUTTON,
+                            ))
+                            .with_children(|button| {
+                                button.spawn(white_text("Close", 16.0));
+                            });
+                    });
+            });
+
+            root.spawn((
+                MenuSettingsPopup,
+                Node {
+                    width: Val::Percent(100.0),
+                    height: Val::Percent(100.0),
+                    position_type: PositionType::Absolute,
+                    justify_content: JustifyContent::Center,
+                    align_items: AlignItems::Center,
+                    display: Display::None,
+                    ..default()
+                },
+                BackgroundColor(Color::srgba(0.02, 0.03, 0.04, 0.75)),
+            ))
+            .with_children(|overlay| {
+                overlay
+                    .spawn((
+                        Node {
+                            width: Val::Percent(100.0),
+                            max_width: Val::Px(420.0),
+                            padding: UiRect::all(Val::Px(16.0)),
+                            border: UiRect::all(Val::Px(2.0)),
+                            row_gap: Val::Px(12.0),
+                            flex_direction: FlexDirection::Column,
+                            align_items: AlignItems::Stretch,
+                            min_height: Val::Px(380.0),
+                            ..default()
+                        },
+                        BorderColor(Color::srgb(0.22, 0.22, 0.25)),
+                        BackgroundColor(MENU_PANEL_BG),
+                    ))
+                    .with_children(|popup| {
+                        popup.spawn(white_text("Settings", 24.0));
+
+                        popup
+                            .spawn(Node {
                                 width: Val::Percent(100.0),
-                                max_width: Val::Px(360.0),
-                                padding: UiRect::all(Val::Px(16.0)),
-                                border: UiRect::all(Val::Px(2.0)),
-                                row_gap: Val::Px(10.0),
-                                flex_direction: FlexDirection::Column,
-                                align_items: AlignItems::FlexStart,
+                                height: Val::Px(40.0),
+                                flex_direction: FlexDirection::Row,
+                                column_gap: Val::Px(8.0),
                                 ..default()
-                            },
-                            BorderColor(Color::srgb(0.22, 0.22, 0.25)),
-                            BackgroundColor(MENU_PANEL_BG),
-                        ))
-                        .with_children(|popup| {
-                            popup.spawn(white_text("Authors", 24.0));
-                            popup.spawn(menu_text("1. Codex", 17.0));
-                            popup.spawn(menu_text("2. Janczar Knurek ;)", 17.0));
-                            popup
-                                .spawn(button_bundle(
-                                    MenuSettingsCloseButton,
-                                    button_node(120.0, 36.0, 1.0),
-                                    NORMAL_BUTTON,
-                                ))
-                                .with_children(|button| {
-                                    button.spawn(white_text("Close", 16.0));
-                                });
-                        });
-                });
-
-            root
-                .spawn((
-                    RulesPopup,
-                    Node {
-                        width: Val::Percent(100.0),
-                        height: Val::Percent(100.0),
-                        position_type: PositionType::Absolute,
-                        justify_content: JustifyContent::Center,
-                        align_items: AlignItems::Center,
-                        display: Display::None,
-                        ..default()
-                    },
-                    BackgroundColor(Color::srgba(0.02, 0.03, 0.04, 0.75)),
-                ))
-                .with_children(|overlay| {
-                    overlay
-                        .spawn((
-                            Node {
-                                width: Val::Percent(100.0),
-                                max_width: Val::Px(480.0),
-                                padding: UiRect::all(Val::Px(16.0)),
-                                border: UiRect::all(Val::Px(2.0)),
-                                row_gap: Val::Px(10.0),
-                                flex_direction: FlexDirection::Column,
-                                align_items: AlignItems::FlexStart,
-                                ..default()
-                            },
-                            BorderColor(Color::srgb(0.22, 0.22, 0.25)),
-                            BackgroundColor(MENU_PANEL_BG),
-                        ))
-                        .with_children(|popup| {
-                            popup.spawn(white_text("Rules", 24.0));
-                            popup.spawn(menu_text("1. Reach your goal side to win.", 16.0));
-                            popup.spawn(menu_text(
-                                "2. On each turn, move one pawn OR place one fence.",
-                                16.0,
-                            ));
-                            popup.spawn(menu_text(
-                                "3. Fences block 3 edges and cannot trap any player.",
-                                16.0,
-                            ));
-                            popup.spawn(menu_text(
-                                "4. If blocked by a pawn, jump over it or sidestep when needed.",
-                                16.0,
-                            ));
-                            popup
-                                .spawn(button_bundle(
-                                    MenuSettingsCloseButton,
-                                    button_node(120.0, 36.0, 1.0),
-                                    NORMAL_BUTTON,
-                                ))
-                                .with_children(|button| {
-                                    button.spawn(white_text("Close", 16.0));
-                                });
-                        });
-                });
-
-            root
-                .spawn((
-                    MenuSettingsPopup,
-                    Node {
-                        width: Val::Percent(100.0),
-                        height: Val::Percent(100.0),
-                        position_type: PositionType::Absolute,
-                        justify_content: JustifyContent::Center,
-                        align_items: AlignItems::Center,
-                        display: Display::None,
-                        ..default()
-                    },
-                    BackgroundColor(Color::srgba(0.02, 0.03, 0.04, 0.75)),
-                ))
-                .with_children(|overlay| {
-                    overlay
-                        .spawn((
-                            Node {
-                                width: Val::Percent(100.0),
-                                max_width: Val::Px(420.0),
-                                padding: UiRect::all(Val::Px(16.0)),
-                                border: UiRect::all(Val::Px(2.0)),
-                                row_gap: Val::Px(12.0),
-                                flex_direction: FlexDirection::Column,
-                                align_items: AlignItems::Stretch,
-                                min_height: Val::Px(380.0),
-                                ..default()
-                            },
-                            BorderColor(Color::srgb(0.22, 0.22, 0.25)),
-                            BackgroundColor(MENU_PANEL_BG),
-                        ))
-                        .with_children(|popup| {
-                            popup.spawn(white_text("Settings", 24.0));
-
-                            popup
-                                .spawn(Node {
-                                    width: Val::Percent(100.0),
-                                    height: Val::Px(40.0),
-                                    flex_direction: FlexDirection::Row,
-                                    column_gap: Val::Px(8.0),
-                                    ..default()
-                                })
-                                .with_children(|tabs| {
-                                    tabs.spawn((
-                                        Button,
-                                        SettingsTabButton {
-                                            tab: SettingsTab::Sound,
-                                        },
-                                        Node {
-                                            width: Val::Px(120.0),
-                                            height: Val::Percent(100.0),
-                                            justify_content: JustifyContent::Center,
-                                            align_items: AlignItems::Center,
-                                            ..default()
-                                        },
-                                        BackgroundColor(TAB_ACTIVE),
-                                    ))
-                                    .with_children(|tab| {
-                                        tab.spawn(white_text("Sound", 16.0));
-                                    });
-
-                                    tabs.spawn((
-                                        Button,
-                                        SettingsTabButton {
-                                            tab: SettingsTab::Controls,
-                                        },
-                                        Node {
-                                            width: Val::Px(120.0),
-                                            height: Val::Percent(100.0),
-                                            justify_content: JustifyContent::Center,
-                                            align_items: AlignItems::Center,
-                                            ..default()
-                                        },
-                                        BackgroundColor(TAB_INACTIVE),
-                                    ))
-                                    .with_children(|tab| {
-                                        tab.spawn(white_text("Controls", 16.0));
-                                    });
-                                });
-
-                            popup
-                                .spawn((
-                                    SettingsTabContent {
+                            })
+                            .with_children(|tabs| {
+                                tabs.spawn((
+                                    Button,
+                                    SettingsTabButton {
                                         tab: SettingsTab::Sound,
                                     },
                                     Node {
-                                        width: Val::Percent(100.0),
-                                        flex_direction: FlexDirection::Column,
-                                        row_gap: Val::Px(12.0),
+                                        width: Val::Px(120.0),
+                                        height: Val::Percent(100.0),
+                                        justify_content: JustifyContent::Center,
+                                        align_items: AlignItems::Center,
                                         ..default()
                                     },
+                                    BackgroundColor(TAB_ACTIVE),
                                 ))
-                                .with_children(|content| {
-                                    spawn_sound_slider_row(
-                                        content,
-                                        "Master Volume",
-                                        SoundSliderKind::Master,
-                                        app_settings.audio.master,
-                                    );
-                                    spawn_sound_slider_row(
-                                        content,
-                                        "Music Volume",
-                                        SoundSliderKind::Music,
-                                        app_settings.audio.music,
-                                    );
-                                    spawn_sound_slider_row(
-                                        content,
-                                        "Effects Volume",
-                                        SoundSliderKind::Effects,
-                                        app_settings.audio.effects,
-                                    );
+                                .with_children(|tab| {
+                                    tab.spawn(white_text("Sound", 16.0));
                                 });
 
-                            popup
-                                .spawn((
-                                    SettingsTabContent {
+                                tabs.spawn((
+                                    Button,
+                                    SettingsTabButton {
                                         tab: SettingsTab::Controls,
                                     },
                                     Node {
-                                        width: Val::Percent(100.0),
-                                        flex_direction: FlexDirection::Column,
-                                        row_gap: Val::Px(10.0),
-                                        display: Display::None,
+                                        width: Val::Px(120.0),
+                                        height: Val::Percent(100.0),
+                                        justify_content: JustifyContent::Center,
+                                        align_items: AlignItems::Center,
                                         ..default()
                                     },
+                                    BackgroundColor(TAB_INACTIVE),
                                 ))
-                                .with_children(|content| {
-                                    content.spawn(menu_text("Click a binding, then press a key.", 16.0));
-                                    spawn_control_binding_row(
-                                        content,
-                                        "Toggle Fence Mode",
-                                        ControlBindingKind::ToggleFenceMode,
-                                        app_settings.controls.toggle_fence_mode_label(),
-                                    );
-                                    spawn_control_binding_row(
-                                        content,
-                                        "Cycle Fence Shape",
-                                        ControlBindingKind::CycleFenceShape,
-                                        app_settings.controls.cycle_fence_shape_label(),
-                                    );
-                                    spawn_control_binding_row(
-                                        content,
-                                        "Rotate Fence",
-                                        ControlBindingKind::RotateFenceOrientation,
-                                        app_settings.controls.rotate_fence_orientation_label(),
-                                    );
+                                .with_children(|tab| {
+                                    tab.spawn(white_text("Controls", 16.0));
                                 });
+                            });
 
-                            popup
-                                .spawn(button_bundle(
-                                    MenuSettingsCloseButton,
-                                    button_node(120.0, 36.0, 1.0),
-                                    NORMAL_BUTTON,
-                                ))
-                                .with_children(|button| {
-                                    button.spawn(white_text("Close", 16.0));
-                                });
-                        });
-                });
+                        popup
+                            .spawn((
+                                SettingsTabContent {
+                                    tab: SettingsTab::Sound,
+                                },
+                                Node {
+                                    width: Val::Percent(100.0),
+                                    flex_direction: FlexDirection::Column,
+                                    row_gap: Val::Px(12.0),
+                                    ..default()
+                                },
+                            ))
+                            .with_children(|content| {
+                                spawn_sound_slider_row(
+                                    content,
+                                    "Master Volume",
+                                    SoundSliderKind::Master,
+                                    app_settings.audio.master,
+                                );
+                                spawn_sound_slider_row(
+                                    content,
+                                    "Music Volume",
+                                    SoundSliderKind::Music,
+                                    app_settings.audio.music,
+                                );
+                                spawn_sound_slider_row(
+                                    content,
+                                    "Effects Volume",
+                                    SoundSliderKind::Effects,
+                                    app_settings.audio.effects,
+                                );
+                            });
+
+                        popup
+                            .spawn((
+                                SettingsTabContent {
+                                    tab: SettingsTab::Controls,
+                                },
+                                Node {
+                                    width: Val::Percent(100.0),
+                                    flex_direction: FlexDirection::Column,
+                                    row_gap: Val::Px(10.0),
+                                    display: Display::None,
+                                    ..default()
+                                },
+                            ))
+                            .with_children(|content| {
+                                content
+                                    .spawn(menu_text("Click a binding, then press a key.", 16.0));
+                                spawn_control_binding_row(
+                                    content,
+                                    "Toggle Fence Mode",
+                                    ControlBindingKind::ToggleFenceMode,
+                                    app_settings.controls.toggle_fence_mode_label(),
+                                );
+                                spawn_control_binding_row(
+                                    content,
+                                    "Cycle Fence Shape",
+                                    ControlBindingKind::CycleFenceShape,
+                                    app_settings.controls.cycle_fence_shape_label(),
+                                );
+                                spawn_control_binding_row(
+                                    content,
+                                    "Rotate Fence",
+                                    ControlBindingKind::RotateFenceOrientation,
+                                    app_settings.controls.rotate_fence_orientation_label(),
+                                );
+                            });
+
+                        popup
+                            .spawn(button_bundle(
+                                MenuSettingsCloseButton,
+                                button_node(120.0, 36.0, 1.0),
+                                NORMAL_BUTTON,
+                            ))
+                            .with_children(|button| {
+                                button.spawn(white_text("Close", 16.0));
+                            });
+                    });
+            });
         });
+}
+
+pub(super) fn handle_lobby_player_list_scroll(
+    menu: Res<MenuSelection>,
+    keys: Res<ButtonInput<KeyCode>>,
+    mut wheel_events: EventReader<MouseWheel>,
+    mut lists: Query<(&RelativeCursorPosition, &mut ScrollPosition), With<LobbyPlayerListScroll>>,
+) {
+    if menu.screen != MenuScreen::Setup || menu.game_mode != StartGameMode::Local {
+        return;
+    }
+
+    let mut wheel_delta: f32 = 0.0;
+    for event in wheel_events.read() {
+        wheel_delta += event.y;
+    }
+
+    let mut key_delta: f32 = 0.0;
+    if keys.just_pressed(KeyCode::ArrowDown) {
+        key_delta += 56.0;
+    }
+    if keys.just_pressed(KeyCode::ArrowUp) {
+        key_delta -= 56.0;
+    }
+    if keys.just_pressed(KeyCode::PageDown) {
+        key_delta += 220.0;
+    }
+    if keys.just_pressed(KeyCode::PageUp) {
+        key_delta -= 220.0;
+    }
+
+    if wheel_delta.abs() <= f32::EPSILON && key_delta.abs() <= f32::EPSILON {
+        return;
+    }
+
+    for (cursor, mut scroll) in &mut lists {
+        let wheel_scroll = if cursor.normalized.is_some() {
+            -wheel_delta * 36.0
+        } else {
+            0.0
+        };
+        let total_delta = wheel_scroll + key_delta;
+        if total_delta.abs() <= f32::EPSILON {
+            continue;
+        }
+
+        scroll.offset_y = (scroll.offset_y + total_delta).max(0.0);
+    }
 }
 
 pub(super) fn cleanup_start_menu(
@@ -627,7 +855,10 @@ pub(super) fn handle_menu_settings_tab_buttons(
 pub(super) fn handle_menu_control_binding_buttons(
     menu: Res<MenuSelection>,
     mut settings_ui: ResMut<SettingsUiState>,
-    interactions: Query<(&Interaction, &ControlBindingButton), (Changed<Interaction>, With<Button>)>,
+    interactions: Query<
+        (&Interaction, &ControlBindingButton),
+        (Changed<Interaction>, With<Button>),
+    >,
 ) {
     if !menu.show_settings_popup || settings_ui.active_tab != SettingsTab::Controls {
         return;
@@ -712,7 +943,14 @@ pub(super) fn sync_menu_settings_tab_visibility(
 
 pub(super) fn handle_menu_sound_slider_input(
     mut app_settings: ResMut<AppSettings>,
-    track_query: Query<(&Interaction, &bevy::ui::RelativeCursorPosition, &SoundSliderTrack), With<Button>>,
+    track_query: Query<
+        (
+            &Interaction,
+            &bevy::ui::RelativeCursorPosition,
+            &SoundSliderTrack,
+        ),
+        With<Button>,
+    >,
 ) {
     let mut changed = false;
     for (interaction, cursor_pos, slider) in &track_query {
@@ -770,16 +1008,6 @@ pub(super) fn handle_menu_option_buttons(
             Without<BoardSizeButton>,
         ),
     >,
-    mut ai_player_buttons: Query<
-        (&Interaction, &AiPlayerCountButton),
-        (
-            Changed<Interaction>,
-            With<Button>,
-            With<AiPlayerCountButton>,
-            Without<BoardSizeButton>,
-            Without<PlayerCountButton>,
-        ),
-    >,
     mut ai_cooldown_buttons: Query<
         (&Interaction, &AiCooldownButton),
         (
@@ -788,20 +1016,27 @@ pub(super) fn handle_menu_option_buttons(
             With<AiCooldownButton>,
             Without<BoardSizeButton>,
             Without<PlayerCountButton>,
-            Without<AiPlayerCountButton>,
         ),
     >,
-    mut ai_strategy_buttons: Query<
-        (&Interaction, &AiStrategyButton),
+    mut player_control_buttons: Query<
+        (&Interaction, &PlayerControlButton),
         (
             Changed<Interaction>,
             With<Button>,
-            With<AiStrategyButton>,
-            Without<BoardSizeButton>,
-            Without<PlayerCountButton>,
-            Without<AiPlayerCountButton>,
-            Without<AiCooldownButton>,
+            With<PlayerControlButton>,
         ),
+    >,
+    mut player_ai_strategy_buttons: Query<
+        (&Interaction, &PlayerAiStrategyButton),
+        (
+            Changed<Interaction>,
+            With<Button>,
+            With<PlayerAiStrategyButton>,
+        ),
+    >,
+    mut player_color_buttons: Query<
+        (&Interaction, &PlayerColorButton),
+        (Changed<Interaction>, With<Button>, With<PlayerColorButton>),
     >,
     mut network_mode_buttons: Query<
         (&Interaction, &NetworkModeButton),
@@ -827,13 +1062,6 @@ pub(super) fn handle_menu_option_buttons(
     for (interaction, button) in &mut player_buttons {
         if *interaction == Interaction::Pressed {
             menu.player_count = button.player_count;
-            menu.ai_player_count = menu.ai_player_count.min(menu.player_count);
-        }
-    }
-
-    for (interaction, button) in &mut ai_player_buttons {
-        if *interaction == Interaction::Pressed && button.ai_player_count <= menu.player_count {
-            menu.ai_player_count = button.ai_player_count;
         }
     }
 
@@ -843,9 +1071,29 @@ pub(super) fn handle_menu_option_buttons(
         }
     }
 
-    for (interaction, button) in &mut ai_strategy_buttons {
+    for (interaction, button) in &mut player_control_buttons {
         if *interaction == Interaction::Pressed {
-            menu.ai_strategy = button.strategy;
+            menu.player_controls[button.player_index] = button.control;
+        }
+    }
+
+    for (interaction, button) in &mut player_ai_strategy_buttons {
+        if *interaction == Interaction::Pressed {
+            menu.player_ai_strategies[button.player_index] = button.strategy;
+        }
+    }
+
+    for (interaction, button) in &mut player_color_buttons {
+        if *interaction == Interaction::Pressed {
+            if let Some(other_player_index) = (0..menu.player_count).find(|player_index| {
+                *player_index != button.player_index
+                    && menu.player_colors[*player_index] == button.color
+            }) {
+                menu.player_colors
+                    .swap(button.player_index, other_player_index);
+            } else {
+                menu.player_colors[button.player_index] = button.color;
+            }
         }
     }
 
@@ -967,6 +1215,8 @@ pub(super) fn sync_menu_layout_visibility(
         Option<&MenuSettingsPopup>,
         Option<&LocalOnly>,
         Option<&NetworkOnly>,
+        Option<&PlayerSetupRow>,
+        Option<&PlayerAiOnly>,
         &mut Node,
     )>,
 ) {
@@ -974,7 +1224,19 @@ pub(super) fn sync_menu_layout_visibility(
         return;
     }
 
-    for (mode_screen, setup_screen, authors_popup, rules_popup, settings_popup, local_only, network_only, mut node) in &mut sections {
+    for (
+        mode_screen,
+        setup_screen,
+        authors_popup,
+        rules_popup,
+        settings_popup,
+        local_only,
+        network_only,
+        player_row,
+        ai_only,
+        mut node,
+    ) in &mut sections
+    {
         if mode_screen.is_some() {
             node.display = if menu.screen == MenuScreen::ModeSelect
                 && !menu.show_authors_popup
@@ -1023,7 +1285,51 @@ pub(super) fn sync_menu_layout_visibility(
                 } else {
                     Display::None
                 };
+        } else if let Some(row) = player_row {
+            node.display = if menu.screen == MenuScreen::Setup
+                && menu.game_mode == StartGameMode::Local
+                && row.player_index < menu.player_count
+            {
+                Display::Flex
+            } else {
+                Display::None
+            };
+        } else if let Some(ai_row) = ai_only {
+            node.display = if menu.screen == MenuScreen::Setup
+                && menu.game_mode == StartGameMode::Local
+                && ai_row.player_index < menu.player_count
+                && menu.player_controls[ai_row.player_index].is_ai()
+            {
+                Display::Flex
+            } else {
+                Display::None
+            };
         }
+    }
+}
+
+pub(super) fn sync_menu_main_panel_width(
+    menu: Res<MenuSelection>,
+    mut panels: Query<&mut Node, With<MenuMainPanel>>,
+) {
+    if !menu.is_changed() {
+        return;
+    }
+
+    let width = if menu.screen == MenuScreen::Setup && menu.game_mode == StartGameMode::Local {
+        Val::Px(980.0)
+    } else {
+        Val::Px(480.0)
+    };
+    let max_width = if menu.screen == MenuScreen::Setup && menu.game_mode == StartGameMode::Local {
+        Val::Percent(96.0)
+    } else {
+        Val::Percent(92.0)
+    };
+
+    for mut panel in &mut panels {
+        panel.width = width;
+        panel.max_width = max_width;
     }
 }
 
@@ -1036,9 +1342,10 @@ pub(super) fn sync_menu_button_visuals(
             &Interaction,
             Option<&BoardSizeButton>,
             Option<&PlayerCountButton>,
-            Option<&AiPlayerCountButton>,
             Option<&AiCooldownButton>,
-            Option<&AiStrategyButton>,
+            Option<&PlayerControlButton>,
+            Option<&PlayerAiStrategyButton>,
+            Option<&PlayerColorButton>,
             Option<&MainMenuActionButton>,
             Option<&NetworkModeButton>,
             Option<&NetworkAddressInputButton>,
@@ -1057,9 +1364,10 @@ pub(super) fn sync_menu_button_visuals(
         interaction,
         board,
         player,
-        ai_player,
         ai_cooldown,
-        ai_strategy,
+        player_control,
+        player_ai_strategy,
+        player_color,
         menu_action,
         network_mode,
         address_input,
@@ -1071,13 +1379,27 @@ pub(super) fn sync_menu_button_visuals(
             selected_button_color(button.radius == menu.board_radius, *interaction).into()
         } else if let Some(button) = player {
             selected_button_color(button.player_count == menu.player_count, *interaction).into()
-        } else if let Some(button) = ai_player {
-            selected_button_color(button.ai_player_count == menu.ai_player_count, *interaction)
-                .into()
         } else if let Some(button) = ai_cooldown {
             selected_button_color(button.cooldown_ms == menu.ai_cooldown_ms, *interaction).into()
-        } else if let Some(button) = ai_strategy {
-            selected_button_color(button.strategy == menu.ai_strategy, *interaction).into()
+        } else if let Some(button) = player_control {
+            selected_button_color(
+                menu.player_controls[button.player_index] == button.control,
+                *interaction,
+            )
+            .into()
+        } else if let Some(button) = player_ai_strategy {
+            selected_button_color(
+                menu.player_ai_strategies[button.player_index] == button.strategy,
+                *interaction,
+            )
+            .into()
+        } else if let Some(button) = player_color {
+            player_color_button_color(
+                button.color,
+                menu.player_colors[button.player_index] == button.color,
+                *interaction,
+            )
+            .into()
         } else if menu_action.is_some() {
             neutral_button_color(*interaction).into()
         } else if let Some(button) = network_mode {
@@ -1128,7 +1450,10 @@ fn apply_control_binding(
     }
 }
 
-fn control_binding_label(app_settings: &AppSettings, binding_kind: ControlBindingKind) -> &'static str {
+fn control_binding_label(
+    app_settings: &AppSettings,
+    binding_kind: ControlBindingKind,
+) -> &'static str {
     match binding_kind {
         ControlBindingKind::ToggleFenceMode => app_settings.controls.toggle_fence_mode_label(),
         ControlBindingKind::CycleFenceShape => app_settings.controls.cycle_fence_shape_label(),
@@ -1187,15 +1512,15 @@ pub(super) fn handle_start_game_button(
                     menu.player_count
                 };
                 game_config.ai_cooldown_seconds = menu.ai_cooldown_ms as f32 / 1_000.0;
-                game_config.ai_strategy = if menu.game_mode == StartGameMode::Local {
-                    menu.ai_strategy
-                } else {
-                    AiStrategy::Heuristic
-                };
                 game_config.player_controls = [PlayerControl::Human; 6];
+                game_config.player_ai_strategies = [AiStrategy::Heuristic; 6];
+                game_config.player_colors = menu.player_colors;
                 if menu.game_mode == StartGameMode::Local {
-                    for player_index in 0..menu.ai_player_count {
-                        game_config.player_controls[player_index] = PlayerControl::RandomAi;
+                    for player_index in 0..menu.player_count {
+                        game_config.player_controls[player_index] =
+                            menu.player_controls[player_index];
+                        game_config.player_ai_strategies[player_index] =
+                            menu.player_ai_strategies[player_index];
                     }
                 }
                 next_phase.set(AppPhase::InGame);
@@ -1230,6 +1555,23 @@ fn connected_players_label(game_mode: StartGameMode, net_mode: NetMode, connecte
             if connected { "Connected" } else { "Waiting" }
         ),
         NetMode::Local => "Choose Host or Client.".to_string(),
+    }
+}
+
+fn player_color_button_color(
+    color: PlayerColor,
+    selected: bool,
+    interaction: Interaction,
+) -> Color {
+    if selected {
+        return color.color();
+    }
+
+    let base = color.color().to_srgba();
+    match interaction {
+        Interaction::Hovered => Color::srgba(base.red, base.green, base.blue, 0.85),
+        Interaction::Pressed => color.color(),
+        Interaction::None => Color::srgba(base.red, base.green, base.blue, 0.45),
     }
 }
 

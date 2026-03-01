@@ -99,7 +99,13 @@ fn cleanup_in_game_entities(
     move_highlights: Query<Entity, With<MoveHighlight>>,
     hud_entities: Query<Entity, With<InGameHudUi>>,
 ) {
-    _cleanup_board(&mut commands, pawns, fence_segments, fence_previews, move_highlights);
+    _cleanup_board(
+        &mut commands,
+        pawns,
+        fence_segments,
+        fence_previews,
+        move_highlights,
+    );
     for entity in &hud_entities {
         commands.entity(entity).despawn_related::<Children>();
         commands.entity(entity).despawn();
@@ -129,9 +135,19 @@ fn handle_start_rematch(
         return;
     }
 
-    _cleanup_board(&mut commands, pawns, fence_segments, fence_previews, move_highlights);
+    _cleanup_board(
+        &mut commands,
+        pawns,
+        fence_segments,
+        fence_previews,
+        move_highlights,
+    );
 
-    *turn_state = TurnState::new(game_config.player_count, game_config.board_radius);
+    *turn_state = TurnState::with_player_colors(
+        game_config.player_count,
+        game_config.board_radius,
+        &game_config.player_colors,
+    );
     selection.current_selected = false;
     *fence_placement = FencePlacementState::default();
     *ai_cooldown = AiTurnCooldown::default();

@@ -19,8 +19,9 @@ pub struct GameConfig {
     pub board_radius: i32,
     pub player_count: usize,
     pub player_controls: [PlayerControl; 6],
+    pub player_ai_strategies: [AiStrategy; 6],
+    pub player_colors: [PlayerColor; 6],
     pub ai_cooldown_seconds: f32,
-    pub ai_strategy: AiStrategy,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -41,6 +42,40 @@ pub enum AiStrategy {
     AlphaBeta,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PlayerColor {
+    Red,
+    Blue,
+    Gold,
+    Teal,
+    Pink,
+    Orange,
+}
+
+impl PlayerColor {
+    pub fn color(self) -> Color {
+        match self {
+            Self::Red => Color::srgb(0.92, 0.28, 0.24),
+            Self::Blue => Color::srgb(0.22, 0.56, 0.92),
+            Self::Gold => Color::srgb(0.95, 0.75, 0.2),
+            Self::Teal => Color::srgb(0.22, 0.82, 0.65),
+            Self::Pink => Color::srgb(0.96, 0.45, 0.86),
+            Self::Orange => Color::srgb(0.98, 0.56, 0.22),
+        }
+    }
+
+    pub fn short_label(self) -> &'static str {
+        match self {
+            Self::Red => "R",
+            Self::Blue => "B",
+            Self::Gold => "G",
+            Self::Teal => "T",
+            Self::Pink => "P",
+            Self::Orange => "O",
+        }
+    }
+}
+
 impl Default for GameConfig {
     fn default() -> Self {
         Self {
@@ -54,8 +89,23 @@ impl Default for GameConfig {
                 PlayerControl::Human,
                 PlayerControl::Human,
             ],
+            player_ai_strategies: [
+                AiStrategy::Heuristic,
+                AiStrategy::Heuristic,
+                AiStrategy::Heuristic,
+                AiStrategy::Heuristic,
+                AiStrategy::Heuristic,
+                AiStrategy::Heuristic,
+            ],
+            player_colors: [
+                PlayerColor::Red,
+                PlayerColor::Blue,
+                PlayerColor::Gold,
+                PlayerColor::Teal,
+                PlayerColor::Pink,
+                PlayerColor::Orange,
+            ],
             ai_cooldown_seconds: 1.0,
-            ai_strategy: AiStrategy::Heuristic,
         }
     }
 }
@@ -66,5 +116,12 @@ impl GameConfig {
             .get(player_index)
             .copied()
             .unwrap_or(PlayerControl::Human)
+    }
+
+    pub fn player_ai_strategy(&self, player_index: usize) -> AiStrategy {
+        self.player_ai_strategies
+            .get(player_index)
+            .copied()
+            .unwrap_or(AiStrategy::Heuristic)
     }
 }

@@ -43,60 +43,59 @@ pub fn setup_turn_indicator(mut commands: Commands, turn_state: Res<TurnState>) 
             BackgroundColor(Color::srgba(0.06, 0.07, 0.11, 0.86)),
         ))
         .with_children(|panel| {
-            panel.spawn((
-                Node {
+            panel
+                .spawn((Node {
                     width: Val::Percent(100.0),
                     min_height: Val::Px(28.0),
                     justify_content: JustifyContent::SpaceBetween,
                     align_items: AlignItems::Center,
                     ..default()
-                },
-            ))
-            .with_children(|header| {
-                header.spawn((
-                    Text::new("Players"),
-                    TextFont::from_font_size(20.0),
-                    TextColor(Color::srgb(0.9, 0.9, 0.95)),
-                ));
+                },))
+                .with_children(|header| {
+                    header.spawn((
+                        Text::new("Players"),
+                        TextFont::from_font_size(20.0),
+                        TextColor(Color::srgb(0.9, 0.9, 0.95)),
+                    ));
 
-                header
-                    .spawn((
-                        Button,
-                        PlayerPanelToggleButton,
-                        Node {
-                            width: Val::Px(28.0),
-                            height: Val::Px(28.0),
-                            justify_content: JustifyContent::Center,
-                            align_items: AlignItems::Center,
-                            border: UiRect::all(Val::Px(1.0)),
-                            ..default()
-                        },
-                        BorderColor(Color::srgba(0.95, 0.95, 1.0, 0.35)),
-                        BackgroundColor(Color::srgba(1.0, 1.0, 1.0, 0.06)),
-                    ))
-                    .with_children(|button| {
-                        button.spawn((
-                            PlayerPanelToggleText,
-                            Text::new("-"),
-                            TextFont::from_font_size(20.0),
-                            TextColor(Color::srgb(0.9, 0.9, 0.95)),
-                        ));
-                    });
-            });
-
-            panel.spawn((
-                PlayerPanelBody,
-                Node {
-                    width: Val::Percent(100.0),
-                    flex_direction: FlexDirection::Column,
-                    row_gap: Val::Px(4.0),
-                    ..default()
-                },
-            ))
-            .with_children(|body| {
-                for player in &turn_state.players {
-                    body
+                    header
                         .spawn((
+                            Button,
+                            PlayerPanelToggleButton,
+                            Node {
+                                width: Val::Px(28.0),
+                                height: Val::Px(28.0),
+                                justify_content: JustifyContent::Center,
+                                align_items: AlignItems::Center,
+                                border: UiRect::all(Val::Px(1.0)),
+                                ..default()
+                            },
+                            BorderColor(Color::srgba(0.95, 0.95, 1.0, 0.35)),
+                            BackgroundColor(Color::srgba(1.0, 1.0, 1.0, 0.06)),
+                        ))
+                        .with_children(|button| {
+                            button.spawn((
+                                PlayerPanelToggleText,
+                                Text::new("-"),
+                                TextFont::from_font_size(20.0),
+                                TextColor(Color::srgb(0.9, 0.9, 0.95)),
+                            ));
+                        });
+                });
+
+            panel
+                .spawn((
+                    PlayerPanelBody,
+                    Node {
+                        width: Val::Percent(100.0),
+                        flex_direction: FlexDirection::Column,
+                        row_gap: Val::Px(4.0),
+                        ..default()
+                    },
+                ))
+                .with_children(|body| {
+                    for player in &turn_state.players {
+                        body.spawn((
                             Button,
                             PlayerListEntry {
                                 player_index: player.index,
@@ -121,8 +120,8 @@ pub fn setup_turn_indicator(mut commands: Commands, turn_state: Res<TurnState>) 
                                 TextColor(player.pawn_color),
                             ));
                         });
-                }
-            });
+                    }
+                });
         });
 }
 
@@ -186,12 +185,13 @@ pub fn update_hovered_goal_preview(
         return;
     }
 
-    let hovered_player = row_interactions
-        .iter()
-        .find_map(|(interaction, entry)| match *interaction {
-            Interaction::Hovered | Interaction::Pressed => Some(entry.player_index),
-            Interaction::None => None,
-        });
+    let hovered_player =
+        row_interactions
+            .iter()
+            .find_map(|(interaction, entry)| match *interaction {
+                Interaction::Hovered | Interaction::Pressed => Some(entry.player_index),
+                Interaction::None => None,
+            });
 
     if hovered_preview.player_index != hovered_player {
         hovered_preview.player_index = hovered_player;
@@ -224,7 +224,7 @@ pub fn update_turn_indicator(
         let fences_left = turn_state.fences_left[turn_state.current_player];
         let current_control = game_config.player_control(turn_state.current_player);
         let control_suffix = if current_control.is_ai() {
-            match game_config.ai_strategy {
+            match game_config.player_ai_strategy(turn_state.current_player) {
                 AiStrategy::Heuristic => " [AI:H]",
                 AiStrategy::AlphaBeta => " [AI:AB]",
             }
@@ -257,7 +257,7 @@ pub fn update_turn_indicator(
             " "
         };
         let control_suffix = if game_config.player_control(player_index).is_ai() {
-            match game_config.ai_strategy {
+            match game_config.player_ai_strategy(player_index) {
                 AiStrategy::Heuristic => " [AI:H]",
                 AiStrategy::AlphaBeta => " [AI:AB]",
             }

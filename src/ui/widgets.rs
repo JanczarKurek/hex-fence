@@ -3,12 +3,10 @@ use bevy::ui::RelativeCursorPosition;
 
 use crate::network::NetMode;
 
-use crate::app_state::AiStrategy;
-
 use super::components::{
-    AiCooldownButton, AiPlayerCountButton, AiStrategyButton, BoardSizeButton, NetworkModeButton,
-    PlayerCountButton, SoundSliderFill, SoundSliderKind, SoundSliderTrack, SoundSliderValueText,
-    ControlBindingButton, ControlBindingKind, ControlBindingValueText,
+    AiCooldownButton, BoardSizeButton, ControlBindingButton, ControlBindingKind,
+    ControlBindingValueText, NetworkModeButton, PlayerCountButton, SoundSliderFill,
+    SoundSliderKind, SoundSliderTrack, SoundSliderValueText,
 };
 use super::styles::{
     MENU_SELECTED, NORMAL_BUTTON, SLIDER_FILL, SLIDER_TRACK, VALUE_TEXT, button_bundle,
@@ -59,25 +57,6 @@ pub(super) fn spawn_player_row(
     });
 }
 
-pub(super) fn spawn_ai_player_row(parent: &mut ChildSpawnerCommands, selected: usize) {
-    parent.spawn(row_node(8.0)).with_children(|row| {
-        for ai_player_count in 0..=5 {
-            row.spawn(button_bundle(
-                AiPlayerCountButton { ai_player_count },
-                button_node(72.0, 38.0, 1.0),
-                if ai_player_count == selected {
-                    MENU_SELECTED
-                } else {
-                    NORMAL_BUTTON
-                },
-            ))
-            .with_children(|button| {
-                button.spawn(white_text(ai_player_count.to_string(), 18.0));
-            });
-        }
-    });
-}
-
 pub(super) fn spawn_ai_cooldown_row(parent: &mut ChildSpawnerCommands, selected_ms: u32) {
     const COOLDOWN_CHOICES_MS: [u32; 5] = [250, 500, 1_000, 1_500, 2_000];
 
@@ -101,28 +80,6 @@ pub(super) fn spawn_ai_cooldown_row(parent: &mut ChildSpawnerCommands, selected_
                     format!("{:.1}s", cooldown_ms as f32 / 1_000.0)
                 };
                 button.spawn(white_text(label, 14.0));
-            });
-        }
-    });
-}
-
-pub(super) fn spawn_ai_strategy_row(parent: &mut ChildSpawnerCommands, selected: AiStrategy) {
-    parent.spawn(row_node(8.0)).with_children(|row| {
-        for (label, strategy) in [
-            ("Heuristic", AiStrategy::Heuristic),
-            ("AlphaBeta", AiStrategy::AlphaBeta),
-        ] {
-            row.spawn(button_bundle(
-                AiStrategyButton { strategy },
-                button_node(128.0, 38.0, 1.0),
-                if strategy == selected {
-                    MENU_SELECTED
-                } else {
-                    NORMAL_BUTTON
-                },
-            ))
-            .with_children(|button| {
-                button.spawn(white_text(label, 15.0));
             });
         }
     });
@@ -248,10 +205,7 @@ pub(super) fn spawn_control_binding_row(
                 NORMAL_BUTTON,
             ))
             .with_children(|button| {
-                button.spawn((
-                    ControlBindingValueText { kind },
-                    white_text(value, 15.0),
-                ));
+                button.spawn((ControlBindingValueText { kind }, white_text(value, 15.0)));
             });
         });
 }

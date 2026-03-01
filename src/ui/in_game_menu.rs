@@ -9,9 +9,9 @@ use crate::game::despawn_all;
 
 use super::components::{
     ControlBindingButton, ControlBindingKind, ControlBindingValueText, ExitButton, InGameUiRoot,
-    RematchButton, RematchPanel, SettingsPopup, SettingsTab, SettingsTabButton,
-    SettingsTabContent, SettingsToggleButton, SettingsUiState, SoundSliderFill, SoundSliderKind,
-    SoundSliderTrack, SoundSliderValueText,
+    RematchButton, RematchPanel, SettingsPopup, SettingsTab, SettingsTabButton, SettingsTabContent,
+    SettingsToggleButton, SettingsUiState, SoundSliderFill, SoundSliderKind, SoundSliderTrack,
+    SoundSliderValueText,
 };
 use super::styles::{
     NORMAL_BUTTON, PANEL_BG, TAB_ACTIVE, TAB_INACTIVE, button_bundle, button_node,
@@ -352,7 +352,10 @@ pub(super) fn handle_tab_buttons(
 
 pub(super) fn handle_control_binding_buttons(
     mut settings_ui: ResMut<SettingsUiState>,
-    interactions: Query<(&Interaction, &ControlBindingButton), (Changed<Interaction>, With<Button>)>,
+    interactions: Query<
+        (&Interaction, &ControlBindingButton),
+        (Changed<Interaction>, With<Button>),
+    >,
 ) {
     if !settings_ui.open || settings_ui.active_tab != SettingsTab::Controls {
         return;
@@ -512,7 +515,10 @@ fn apply_control_binding(
     }
 }
 
-fn control_binding_label(app_settings: &AppSettings, binding_kind: ControlBindingKind) -> &'static str {
+fn control_binding_label(
+    app_settings: &AppSettings,
+    binding_kind: ControlBindingKind,
+) -> &'static str {
     match binding_kind {
         ControlBindingKind::ToggleFenceMode => app_settings.controls.toggle_fence_mode_label(),
         ControlBindingKind::CycleFenceShape => app_settings.controls.cycle_fence_shape_label(),

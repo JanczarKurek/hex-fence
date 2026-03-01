@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 
-use crate::app_state::AiStrategy;
+use crate::app_state::{AiStrategy, PlayerColor, PlayerControl};
 use crate::network::NetMode;
 use crate::settings::AppSettings;
 
@@ -10,9 +10,10 @@ pub(super) struct MenuSelection {
     pub(super) game_mode: StartGameMode,
     pub(super) board_radius: i32,
     pub(super) player_count: usize,
-    pub(super) ai_player_count: usize,
+    pub(super) player_controls: [PlayerControl; 6],
+    pub(super) player_ai_strategies: [AiStrategy; 6],
+    pub(super) player_colors: [PlayerColor; 6],
     pub(super) ai_cooldown_ms: u32,
-    pub(super) ai_strategy: AiStrategy,
     pub(super) net_mode: NetMode,
     pub(super) net_address: String,
     pub(super) address_focused: bool,
@@ -28,9 +29,17 @@ impl Default for MenuSelection {
             game_mode: StartGameMode::Local,
             board_radius: 4,
             player_count: 3,
-            ai_player_count: 0,
+            player_controls: [PlayerControl::Human; 6],
+            player_ai_strategies: [AiStrategy::Heuristic; 6],
+            player_colors: [
+                PlayerColor::Red,
+                PlayerColor::Blue,
+                PlayerColor::Gold,
+                PlayerColor::Teal,
+                PlayerColor::Pink,
+                PlayerColor::Orange,
+            ],
             ai_cooldown_ms: 1_000,
-            ai_strategy: AiStrategy::Heuristic,
             net_mode: NetMode::Local,
             net_address: "127.0.0.1:4000".to_string(),
             address_focused: false,
@@ -43,6 +52,9 @@ impl Default for MenuSelection {
 
 #[derive(Component)]
 pub(super) struct StartMenuRoot;
+
+#[derive(Component)]
+pub(super) struct MenuMainPanel;
 
 #[derive(Component)]
 pub(super) struct StartGameButton;
@@ -61,8 +73,9 @@ pub(super) struct PlayerCountButton {
 }
 
 #[derive(Component)]
-pub(super) struct AiPlayerCountButton {
-    pub(super) ai_player_count: usize,
+pub(super) struct PlayerControlButton {
+    pub(super) player_index: usize,
+    pub(super) control: PlayerControl,
 }
 
 #[derive(Component)]
@@ -71,9 +84,29 @@ pub(super) struct AiCooldownButton {
 }
 
 #[derive(Component)]
-pub(super) struct AiStrategyButton {
+pub(super) struct PlayerAiStrategyButton {
+    pub(super) player_index: usize,
     pub(super) strategy: AiStrategy,
 }
+
+#[derive(Component)]
+pub(super) struct PlayerColorButton {
+    pub(super) player_index: usize,
+    pub(super) color: PlayerColor,
+}
+
+#[derive(Component)]
+pub(super) struct PlayerSetupRow {
+    pub(super) player_index: usize,
+}
+
+#[derive(Component)]
+pub(super) struct PlayerAiOnly {
+    pub(super) player_index: usize,
+}
+
+#[derive(Component)]
+pub(super) struct LobbyPlayerListScroll;
 
 #[derive(Component)]
 pub(super) struct MainMenuActionButton {

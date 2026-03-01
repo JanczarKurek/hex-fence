@@ -20,7 +20,10 @@ impl Plugin for BoardPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(OnEnter(AppPhase::InGame), spawn_board)
             .add_systems(OnExit(AppPhase::InGame), cleanup_board)
-            .add_systems(Update, update_goal_preview.run_if(in_state(AppPhase::InGame)));
+            .add_systems(
+                Update,
+                update_goal_preview.run_if(in_state(AppPhase::InGame)),
+            );
     }
 }
 

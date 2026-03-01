@@ -74,7 +74,16 @@ impl Default for TurnState {
 
 impl TurnState {
     pub fn new(player_count: usize, board_radius: i32) -> Self {
-        let players = players_for_count(player_count);
+        let default_config = GameConfig::default();
+        Self::with_player_colors(player_count, board_radius, &default_config.player_colors)
+    }
+
+    pub fn with_player_colors(
+        player_count: usize,
+        board_radius: i32,
+        player_colors: &[crate::app_state::PlayerColor; 6],
+    ) -> Self {
+        let players = players_for_count(player_count, player_colors);
         let pawn_positions = players
             .iter()
             .map(|player| player.start_coord(board_radius))
@@ -286,7 +295,11 @@ pub fn reset_turn_state_from_config(
     game_config: Res<GameConfig>,
     mut turn_state: ResMut<TurnState>,
 ) {
-    *turn_state = TurnState::new(game_config.player_count, game_config.board_radius);
+    *turn_state = TurnState::with_player_colors(
+        game_config.player_count,
+        game_config.board_radius,
+        &game_config.player_colors,
+    );
 }
 
 fn has_path_to_goal(

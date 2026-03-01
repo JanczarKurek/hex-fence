@@ -104,7 +104,7 @@ pub fn random_ai_take_turn(
         return;
     }
 
-    let action = match game_config.ai_strategy {
+    let action = match game_config.player_ai_strategy(current_player) {
         AiStrategy::Heuristic => choose_heuristic_action(&turn_state, &mut ai_rng),
         AiStrategy::AlphaBeta => choose_alpha_beta_action(&turn_state, &mut ai_rng, 3)
             .or_else(|| choose_heuristic_action(&turn_state, &mut ai_rng)),

@@ -30,3 +30,4 @@
 - Migrated settings to XDG config path and persisted last used network config.
 - Reworked main menu to a vertical Hex Fence layout with Local/Network/Settings/Authors/Quit.
 - Added Authors popup (Codex first, Janczar Knurek second) and menu Settings sound popup.
+- Reworked local game setup into a lobby layout: per-player Human/AI toggle, per-player AI type, and per-player color selection.
