@@ -17,6 +17,8 @@ impl Plugin for NetworkPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(NetConfig::from_env())
             .insert_resource(NetRuntime::default())
+            .insert_resource(NetLobbyState::default())
+            .add_event::<NetUiCommand>()
             .add_systems(
                 Startup,
                 (apply_saved_network_settings, mark_local_connected_if_needed).chain(),
@@ -25,6 +27,7 @@ impl Plugin for NetworkPlugin {
                 Update,
                 (
                     reconfigure_network_runtime,
+                    handle_network_ui_commands,
                     handle_rematch_requests,
                     poll_network_events,
                     send_local_actions_over_network,
@@ -85,6 +88,33 @@ pub struct NetRuntime {
     start_sent: bool,
 }
 
+#[derive(Resource, Clone, Debug)]
+pub struct NetLobbyState {
+    pub config: GameConfig,
+    pub host_slot: Option<usize>,
+    pub client_slot: Option<usize>,
+}
+
+impl Default for NetLobbyState {
+    fn default() -> Self {
+        Self {
+            config: GameConfig::default(),
+            host_slot: Some(0),
+            client_slot: None,
+        }
+    }
+}
+
+#[derive(Event, Clone, Copy, Debug)]
+pub enum NetUiCommand {
+    HostSyncLobby {
+        config: GameConfig,
+        host_slot: Option<usize>,
+        client_slot: Option<usize>,
+    },
+    SelectLocalSlot(Option<usize>),
+}
+
 impl NetRuntime {
     pub fn can_control_player(&self, config: &NetConfig, player_index: usize) -> bool {
         match config.mode {
@@ -98,7 +128,16 @@ impl NetRuntime {
 
 #[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
 enum NetMessage {
-    StartGame(GameConfig),
+    StartGame {
+        config: GameConfig,
+        client_player_index: usize,
+    },
+    LobbySync {
+        config: GameConfig,
+        host_slot: Option<usize>,
+        client_slot: Option<usize>,
+    },
+    LobbySelectSlot(Option<usize>),
     Action(GameAction),
     RematchRequest,
 }
@@ -117,6 +156,26 @@ fn mark_local_connected_if_needed(net_config: Res<NetConfig>, mut runtime: ResMu
     }
 }
 
+fn sanitize_slot(slot: Option<usize>, player_count: usize) -> Option<usize> {
+    slot.filter(|value| *value < player_count)
+}
+
+fn normalize_lobby(lobby: &mut NetLobbyState) {
+    lobby.host_slot = sanitize_slot(lobby.host_slot, lobby.config.player_count);
+    lobby.client_slot = sanitize_slot(lobby.client_slot, lobby.config.player_count);
+    if lobby.host_slot == lobby.client_slot {
+        lobby.client_slot = None;
+    }
+}
+
+fn send_lobby_sync(outgoing: &Sender<NetMessage>, lobby: &NetLobbyState) {
+    let _ = outgoing.send(NetMessage::LobbySync {
+        config: lobby.config,
+        host_slot: lobby.host_slot,
+        client_slot: lobby.client_slot,
+    });
+}
+
 fn apply_saved_network_settings(app_settings: Res<AppSettings>, mut net_config: ResMut<NetConfig>) {
     if has_env_network_override() {
         return;
@@ -130,7 +189,11 @@ fn apply_saved_network_settings(app_settings: Res<AppSettings>, mut net_config: 
     net_config.local_player_index = app_settings.network.local_player_index;
 }
 
-fn reconfigure_network_runtime(net_config: Res<NetConfig>, mut runtime: ResMut<NetRuntime>) {
+fn reconfigure_network_runtime(
+    net_config: Res<NetConfig>,
+    mut runtime: ResMut<NetRuntime>,
+    mut lobby: ResMut<NetLobbyState>,
+) {
     if runtime.active_config.as_ref() == Some(net_config.as_ref()) {
         return;
     }
@@ -143,6 +206,7 @@ fn reconfigure_network_runtime(net_config: Res<NetConfig>, mut runtime: ResMut<N
 
     if matches!(net_config.mode, NetMode::Local) {
         runtime.connected = true;
+        *lobby = NetLobbyState::default();
         return;
     }
 
@@ -178,6 +242,60 @@ fn reconfigure_network_runtime(net_config: Res<NetConfig>, mut runtime: ResMut<N
 
     runtime.outgoing = Some(to_thread_tx);
     runtime.incoming = Some(Mutex::new(to_game_rx));
+    lobby.host_slot = Some(0);
+    lobby.client_slot = None;
+}
+
+fn handle_network_ui_commands(
+    net_config: Res<NetConfig>,
+    runtime: Res<NetRuntime>,
+    mut lobby: ResMut<NetLobbyState>,
+    mut commands: EventReader<NetUiCommand>,
+) {
+    if matches!(net_config.mode, NetMode::Local) {
+        return;
+    }
+
+    let mut should_sync = false;
+    for command in commands.read() {
+        match *command {
+            NetUiCommand::HostSyncLobby {
+                config,
+                host_slot,
+                client_slot,
+            } => {
+                if !matches!(net_config.mode, NetMode::Host) {
+                    continue;
+                }
+                lobby.config = config;
+                lobby.host_slot = host_slot;
+                lobby.client_slot = client_slot;
+                normalize_lobby(&mut lobby);
+                should_sync = true;
+            }
+            NetUiCommand::SelectLocalSlot(slot) => match net_config.mode {
+                NetMode::Host => {
+                    lobby.host_slot = slot;
+                    normalize_lobby(&mut lobby);
+                    should_sync = true;
+                }
+                NetMode::Client => {
+                    if let Some(outgoing) = &runtime.outgoing {
+                        let _ = outgoing.send(NetMessage::LobbySelectSlot(slot));
+                    }
+                }
+                NetMode::Local => {}
+            },
+        }
+    }
+
+    if should_sync
+        && matches!(net_config.mode, NetMode::Host)
+        && runtime.connected
+        && let Some(outgoing) = &runtime.outgoing
+    {
+        send_lobby_sync(outgoing, &lobby);
+    }
 }
 
 fn run_socket(stream: TcpStream, outbound: Receiver<NetMessage>, inbound: Sender<NetEvent>) {
@@ -235,7 +353,8 @@ fn run_socket(stream: TcpStream, outbound: Receiver<NetMessage>, inbound: Sender
 
 fn poll_network_events(
     mut runtime: ResMut<NetRuntime>,
-    net_config: Res<NetConfig>,
+    mut net_config: ResMut<NetConfig>,
+    mut lobby: ResMut<NetLobbyState>,
     mut game_config: ResMut<GameConfig>,
     phase: Res<State<AppPhase>>,
     mut next_phase: ResMut<NextState<AppPhase>>,
@@ -265,18 +384,54 @@ fn poll_network_events(
 
     for event in events {
         match event {
-            NetEvent::Connected => runtime.connected = true,
+            NetEvent::Connected => {
+                runtime.connected = true;
+                if matches!(net_config.mode, NetMode::Host)
+                    && let Some(outgoing) = &runtime.outgoing
+                {
+                    normalize_lobby(&mut lobby);
+                    send_lobby_sync(outgoing, &lobby);
+                }
+            }
             NetEvent::Disconnected => {
                 runtime.connected = false;
                 runtime.start_sent = false;
+                if matches!(net_config.mode, NetMode::Host) {
+                    lobby.client_slot = None;
+                }
             }
-            NetEvent::Message(NetMessage::StartGame(config)) => {
+            NetEvent::Message(NetMessage::StartGame {
+                config,
+                client_player_index,
+            }) => {
                 if matches!(net_config.mode, NetMode::Client) {
                     *game_config = config;
+                    net_config.local_player_index = client_player_index;
                     if *phase.get() == AppPhase::InGame {
                         rematch_events.write(StartRematch);
                     } else {
                         next_phase.set(AppPhase::InGame);
+                    }
+                }
+            }
+            NetEvent::Message(NetMessage::LobbySync {
+                config,
+                host_slot,
+                client_slot,
+            }) => {
+                if matches!(net_config.mode, NetMode::Client) {
+                    lobby.config = config;
+                    lobby.host_slot = host_slot;
+                    lobby.client_slot = client_slot;
+                    normalize_lobby(&mut lobby);
+                }
+            }
+            NetEvent::Message(NetMessage::LobbySelectSlot(slot)) => {
+                if matches!(net_config.mode, NetMode::Host) {
+                    lobby.client_slot = slot;
+                    normalize_lobby(&mut lobby);
+                    if let Some(outgoing) = &runtime.outgoing {
+                        send_lobby_sync(outgoing, &lobby);
                     }
                 }
             }
@@ -286,7 +441,10 @@ fn poll_network_events(
                     && runtime.connected
                 {
                     if let Some(outgoing) = &runtime.outgoing {
-                        let _ = outgoing.send(NetMessage::StartGame(*game_config));
+                        let _ = outgoing.send(NetMessage::StartGame {
+                            config: *game_config,
+                            client_player_index: lobby.client_slot.unwrap_or(usize::MAX),
+                        });
                     }
                     rematch_events.write(StartRematch);
                 }
@@ -305,6 +463,7 @@ fn handle_rematch_requests(
     net_config: Res<NetConfig>,
     runtime: Res<NetRuntime>,
     game_config: Res<GameConfig>,
+    lobby: Res<NetLobbyState>,
     mut requests: EventReader<RematchRequested>,
     mut rematch_events: EventWriter<StartRematch>,
 ) {
@@ -325,7 +484,10 @@ fn handle_rematch_requests(
                 return;
             }
             if let Some(outgoing) = &runtime.outgoing {
-                let _ = outgoing.send(NetMessage::StartGame(*game_config));
+                let _ = outgoing.send(NetMessage::StartGame {
+                    config: *game_config,
+                    client_player_index: lobby.client_slot.unwrap_or(usize::MAX),
+                });
             }
             rematch_events.write(StartRematch);
         }
@@ -367,6 +529,7 @@ fn send_start_game_from_host_on_enter(
     mut runtime: ResMut<NetRuntime>,
     phase: Res<State<AppPhase>>,
     game_config: Res<GameConfig>,
+    lobby: Res<NetLobbyState>,
 ) {
     if *phase.get() != AppPhase::InGame {
         runtime.start_sent = false;
@@ -378,7 +541,10 @@ fn send_start_game_from_host_on_enter(
     }
 
     if let Some(outgoing) = &runtime.outgoing {
-        let _ = outgoing.send(NetMessage::StartGame(*game_config));
+        let _ = outgoing.send(NetMessage::StartGame {
+            config: *game_config,
+            client_player_index: lobby.client_slot.unwrap_or(usize::MAX),
+        });
         runtime.start_sent = true;
     }
 }

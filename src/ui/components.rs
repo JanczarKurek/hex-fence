@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 
 use crate::app_state::{AiStrategy, PlayerColor, PlayerControl};
-use crate::network::NetMode;
+use crate::network::{NetLobbyState, NetMode};
 use crate::settings::AppSettings;
 
 #[derive(Resource)]
@@ -20,6 +20,8 @@ pub(super) struct MenuSelection {
     pub(super) show_authors_popup: bool,
     pub(super) show_rules_popup: bool,
     pub(super) show_settings_popup: bool,
+    pub(super) network_local_slot: Option<usize>,
+    pub(super) open_player_detail_dropdown: Option<usize>,
 }
 
 impl Default for MenuSelection {
@@ -46,6 +48,8 @@ impl Default for MenuSelection {
             show_authors_popup: false,
             show_rules_popup: false,
             show_settings_popup: false,
+            network_local_slot: Some(0),
+            open_player_detail_dropdown: None,
         }
     }
 }
@@ -75,7 +79,11 @@ pub(super) struct PlayerCountButton {
 #[derive(Component)]
 pub(super) struct PlayerControlButton {
     pub(super) player_index: usize,
-    pub(super) control: PlayerControl,
+}
+
+#[derive(Component)]
+pub(super) struct PlayerControlToggleButton {
+    pub(super) player_index: usize,
 }
 
 #[derive(Component)]
@@ -84,9 +92,32 @@ pub(super) struct AiCooldownButton {
 }
 
 #[derive(Component)]
-pub(super) struct PlayerAiStrategyButton {
+pub(super) struct PlayerDetailDropdownButton {
     pub(super) player_index: usize,
-    pub(super) strategy: AiStrategy,
+}
+
+#[derive(Component)]
+pub(super) struct PlayerDetailDropdownText {
+    pub(super) player_index: usize,
+}
+
+#[derive(Component)]
+pub(super) struct PlayerDetailDropdownMenu {
+    pub(super) player_index: usize,
+}
+
+#[derive(Component)]
+pub(super) struct PlayerDetailOptionButton {
+    pub(super) player_index: usize,
+    pub(super) option: PlayerDetailOption,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum PlayerDetailOption {
+    Host,
+    Client,
+    Heuristic,
+    AlphaBeta,
 }
 
 #[derive(Component)]
@@ -133,6 +164,9 @@ pub(super) struct MenuScreenModeSelect;
 pub(super) struct MenuScreenSetup;
 
 #[derive(Component)]
+pub(super) struct MenuScreenNetworkLobby;
+
+#[derive(Component)]
 pub(super) struct AuthorsPopup;
 
 #[derive(Component)]
@@ -167,10 +201,29 @@ pub(super) struct NetworkConnectButton;
 #[derive(Component)]
 pub(super) struct ConnectedPlayersText;
 
+#[derive(Component)]
+pub(super) struct NetworkSlotButton {
+    pub(super) slot: usize,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum NetworkSlotOwner {
+    Ai,
+    Host,
+    Client,
+}
+
+#[derive(Component)]
+pub(super) struct NetworkLobbyHostOnly;
+
+#[derive(Component)]
+pub(super) struct NetworkLobbyClientOnly;
+
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub(super) enum MenuScreen {
     ModeSelect,
     Setup,
+    NetworkLobby,
 }
 
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -285,5 +338,21 @@ impl SoundSliderKind {
             Self::Music => settings.audio.music = value,
             Self::Effects => settings.audio.effects = value,
         }
+    }
+}
+
+impl MenuSelection {
+    pub(super) fn sync_from_network_lobby(&mut self, net_mode: NetMode, net_lobby: &NetLobbyState) {
+        self.board_radius = net_lobby.config.board_radius;
+        self.player_count = net_lobby.config.player_count;
+        self.player_controls = net_lobby.config.player_controls;
+        self.player_ai_strategies = net_lobby.config.player_ai_strategies;
+        self.player_colors = net_lobby.config.player_colors;
+        self.ai_cooldown_ms = (net_lobby.config.ai_cooldown_seconds * 1000.0).round() as u32;
+        self.network_local_slot = if matches!(net_mode, NetMode::Host) {
+            net_lobby.host_slot
+        } else {
+            net_lobby.client_slot
+        };
     }
 }

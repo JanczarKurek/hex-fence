@@ -7,6 +7,7 @@
 ## Dev
 - Make as much stuff loadable from files instead of compiled:
     - Configuration of the number of fences / other values in the game rules
+- Extend network transport from single host+client connection to true multi-client sessions.
 
 ## Graphics
 - Fences have empty spots on the joints
@@ -31,3 +32,4 @@
 - Reworked main menu to a vertical Hex Fence layout with Local/Network/Settings/Authors/Quit.
 - Added Authors popup (Codex first, Janczar Knurek second) and menu Settings sound popup.
 - Reworked local game setup into a lobby layout: per-player Human/AI toggle, per-player AI type, and per-player color selection.
+- Added a network lobby flow: host enters lobby immediately, client enters on connect, both can pick player slots, and host can start matches with >2 players including server-side AIs.

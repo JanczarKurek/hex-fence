@@ -24,21 +24,36 @@ impl Plugin for UiPlugin {
                     start_menu::handle_menu_option_buttons,
                     start_menu::handle_lobby_player_list_scroll,
                     start_menu::handle_network_connect_button,
+                    start_menu::sync_network_lobby_screen,
                     start_menu::handle_network_address_focus,
                     start_menu::handle_network_address_typing,
                     start_menu::sync_network_address_input_from_menu,
                     start_menu::handle_menu_settings_close_button,
                     start_menu::handle_menu_settings_tab_buttons,
                     start_menu::handle_menu_control_binding_buttons,
+                )
+                    .run_if(in_state(AppPhase::Menu)),
+            )
+            .add_systems(
+                Update,
+                (
                     start_menu::handle_menu_control_binding_capture,
                     start_menu::handle_menu_sound_slider_input,
                     start_menu::sync_menu_settings_tab_visibility,
                     start_menu::sync_menu_control_binding_texts,
                     start_menu::sync_menu_sound_slider_visuals,
+                )
+                    .run_if(in_state(AppPhase::Menu)),
+            )
+            .add_systems(
+                Update,
+                (
                     start_menu::handle_start_game_button,
                     start_menu::sync_menu_layout_visibility,
                     start_menu::sync_menu_main_panel_width,
                     start_menu::sync_menu_button_visuals,
+                    start_menu::sync_player_detail_labels,
+                    start_menu::touch_legacy_network_slot_buttons,
                 )
                     .run_if(in_state(AppPhase::Menu)),
             )
