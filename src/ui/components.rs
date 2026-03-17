@@ -1,6 +1,9 @@
 use bevy::prelude::*;
 
-use crate::app_state::{AiStrategy, PlayerColor, PlayerControl};
+use crate::app_state::{
+    AiStrategy, DEFAULT_AI_STRATEGIES, DEFAULT_PLAYER_COLORS, DEFAULT_PLAYER_CONTROLS, GameConfig,
+    PlayerColor, PlayerControl,
+};
 use crate::network::{NetLobbyState, NetMode};
 use crate::settings::AppSettings;
 
@@ -31,16 +34,9 @@ impl Default for MenuSelection {
             game_mode: StartGameMode::Local,
             board_radius: 4,
             player_count: 3,
-            player_controls: [PlayerControl::Human; 6],
-            player_ai_strategies: [AiStrategy::Heuristic; 6],
-            player_colors: [
-                PlayerColor::Red,
-                PlayerColor::Blue,
-                PlayerColor::Gold,
-                PlayerColor::Teal,
-                PlayerColor::Pink,
-                PlayerColor::Orange,
-            ],
+            player_controls: DEFAULT_PLAYER_CONTROLS,
+            player_ai_strategies: DEFAULT_AI_STRATEGIES,
+            player_colors: DEFAULT_PLAYER_COLORS,
             ai_cooldown_ms: 1_000,
             net_mode: NetMode::Local,
             net_address: "127.0.0.1:4000".to_string(),
@@ -341,7 +337,267 @@ impl SoundSliderKind {
     }
 }
 
+impl ControlBindingKind {
+    pub(super) fn apply(self, app_settings: &mut AppSettings, key: KeyCode) -> bool {
+        match self {
+            Self::ToggleFenceMode => app_settings.controls.set_toggle_fence_mode_key(key),
+            Self::CycleFenceShape => app_settings.controls.set_cycle_fence_shape_key(key),
+            Self::RotateFenceOrientation => {
+                app_settings.controls.set_rotate_fence_orientation_key(key)
+            }
+        }
+    }
+
+    pub(super) fn label(self, app_settings: &AppSettings) -> &'static str {
+        match self {
+            Self::ToggleFenceMode => app_settings.controls.toggle_fence_mode_label(),
+            Self::CycleFenceShape => app_settings.controls.cycle_fence_shape_label(),
+            Self::RotateFenceOrientation => app_settings.controls.rotate_fence_orientation_label(),
+        }
+    }
+}
+
 impl MenuSelection {
+    fn display(active: bool) -> Display {
+        if active { Display::Flex } else { Display::None }
+    }
+
+    pub(super) fn clear_overlays(&mut self) {
+        self.show_authors_popup = false;
+        self.show_rules_popup = false;
+        self.show_settings_popup = false;
+        self.open_player_detail_dropdown = None;
+    }
+
+    pub(super) fn uses_setup_layout(&self) -> bool {
+        self.screen == MenuScreen::Setup
+            && matches!(
+                self.game_mode,
+                StartGameMode::Local | StartGameMode::Network
+            )
+    }
+
+    pub(super) fn main_panel_width(&self) -> (Val, Val) {
+        if self.uses_setup_layout() {
+            (Val::Px(980.0), Val::Percent(96.0))
+        } else {
+            (Val::Px(480.0), Val::Percent(92.0))
+        }
+    }
+
+    pub(super) fn mode_select_display(&self) -> Display {
+        Self::display(
+            self.screen == MenuScreen::ModeSelect
+                && !self.show_authors_popup
+                && !self.show_rules_popup
+                && !self.show_settings_popup,
+        )
+    }
+
+    pub(super) fn setup_display(&self) -> Display {
+        Self::display(self.screen == MenuScreen::Setup)
+    }
+
+    pub(super) fn network_lobby_display(&self) -> Display {
+        Self::display(self.screen == MenuScreen::NetworkLobby)
+    }
+
+    pub(super) fn authors_popup_display(&self) -> Display {
+        Self::display(self.screen == MenuScreen::ModeSelect && self.show_authors_popup)
+    }
+
+    pub(super) fn rules_popup_display(&self) -> Display {
+        Self::display(self.screen == MenuScreen::ModeSelect && self.show_rules_popup)
+    }
+
+    pub(super) fn settings_popup_display(&self) -> Display {
+        Self::display(self.screen == MenuScreen::ModeSelect && self.show_settings_popup)
+    }
+
+    pub(super) fn local_setup_display(&self) -> Display {
+        Self::display(self.uses_setup_layout())
+    }
+
+    pub(super) fn network_setup_display(&self) -> Display {
+        Self::display(self.screen == MenuScreen::Setup && self.game_mode == StartGameMode::Network)
+    }
+
+    pub(super) fn player_row_display(&self, player_index: usize) -> Display {
+        Self::display(self.uses_setup_layout() && player_index < self.player_count)
+    }
+
+    pub(super) fn player_ai_display(&self, player_index: usize) -> Display {
+        Self::display(
+            self.uses_setup_layout()
+                && player_index < self.player_count
+                && self.player_controls[player_index].is_ai(),
+        )
+    }
+
+    pub(super) fn detail_menu_display(
+        &self,
+        net_config: &crate::network::NetConfig,
+        player_index: usize,
+    ) -> Display {
+        Self::display(
+            self.open_player_detail_dropdown == Some(player_index)
+                && self.screen == MenuScreen::Setup
+                && player_index < self.player_count
+                && self.player_detail_dropdown_enabled(net_config, player_index),
+        )
+    }
+
+    pub(super) fn detail_option_display(
+        &self,
+        net_config: &crate::network::NetConfig,
+        player_index: usize,
+        option: PlayerDetailOption,
+    ) -> Display {
+        Self::display(
+            self.open_player_detail_dropdown == Some(player_index)
+                && self.screen == MenuScreen::Setup
+                && player_index < self.player_count
+                && self.player_detail_option_enabled(net_config, player_index, option),
+        )
+    }
+
+    pub(super) fn lobby_host_only_display(&self, net_mode: NetMode) -> Display {
+        Self::display(self.screen == MenuScreen::NetworkLobby && matches!(net_mode, NetMode::Host))
+    }
+
+    pub(super) fn lobby_client_only_display(&self, net_mode: NetMode) -> Display {
+        Self::display(
+            self.screen == MenuScreen::NetworkLobby && matches!(net_mode, NetMode::Client),
+        )
+    }
+
+    pub(super) fn can_edit_full_lobby(&self, selected_net_mode: NetMode) -> bool {
+        self.game_mode == StartGameMode::Local
+            || (self.game_mode == StartGameMode::Network
+                && matches!(selected_net_mode, NetMode::Host))
+    }
+
+    pub(super) fn player_detail_dropdown_enabled(
+        &self,
+        net_config: &crate::network::NetConfig,
+        player_index: usize,
+    ) -> bool {
+        if player_index >= self.player_count {
+            return false;
+        }
+        if self.player_controls[player_index].is_ai() {
+            return self.game_mode == StartGameMode::Local
+                || (self.game_mode == StartGameMode::Network
+                    && matches!(self.configured_network_mode(net_config), NetMode::Host));
+        }
+        self.game_mode == StartGameMode::Network
+    }
+
+    pub(super) fn player_detail_option_enabled(
+        &self,
+        net_config: &crate::network::NetConfig,
+        player_index: usize,
+        option: PlayerDetailOption,
+    ) -> bool {
+        if player_index >= self.player_count {
+            return false;
+        }
+
+        if self.player_controls[player_index].is_ai() {
+            if !(self.game_mode == StartGameMode::Local
+                || (self.game_mode == StartGameMode::Network
+                    && matches!(self.configured_network_mode(net_config), NetMode::Host)))
+            {
+                return false;
+            }
+            return matches!(
+                option,
+                PlayerDetailOption::Heuristic | PlayerDetailOption::AlphaBeta
+            );
+        }
+
+        if self.game_mode != StartGameMode::Network {
+            return false;
+        }
+
+        match self.configured_network_mode(net_config) {
+            NetMode::Host => matches!(
+                option,
+                PlayerDetailOption::Host | PlayerDetailOption::Client
+            ),
+            NetMode::Client => matches!(option, PlayerDetailOption::Client),
+            NetMode::Local => false,
+        }
+    }
+
+    pub(super) fn configured_network_mode(
+        &self,
+        net_config: &crate::network::NetConfig,
+    ) -> NetMode {
+        if self.game_mode == StartGameMode::Network {
+            self.net_mode
+        } else {
+            net_config.mode
+        }
+    }
+
+    pub(super) fn start_game_label(&self, net_mode: NetMode) -> &'static str {
+        if self.screen == MenuScreen::NetworkLobby {
+            if matches!(net_mode, NetMode::Client) {
+                "Waiting for Host"
+            } else {
+                "Start Network Game"
+            }
+        } else if self.game_mode == StartGameMode::Network && self.net_mode == NetMode::Client {
+            "Waiting for Host"
+        } else {
+            "Start Game"
+        }
+    }
+
+    pub(super) fn synced_game_config(&self) -> GameConfig {
+        GameConfig {
+            board_radius: self.board_radius,
+            player_count: self.player_count,
+            player_controls: self.player_controls,
+            player_ai_strategies: self.player_ai_strategies,
+            player_colors: self.player_colors,
+            ai_cooldown_seconds: self.ai_cooldown_ms as f32 / 1_000.0,
+        }
+    }
+
+    pub(super) fn local_game_config(&self) -> GameConfig {
+        let mut config = self.synced_game_config();
+        config.player_controls = DEFAULT_PLAYER_CONTROLS;
+        config.player_ai_strategies = DEFAULT_AI_STRATEGIES;
+
+        for player_index in 0..self.player_count {
+            config.player_controls[player_index] = self.player_controls[player_index];
+            config.player_ai_strategies[player_index] = self.player_ai_strategies[player_index];
+        }
+
+        config
+    }
+
+    pub(super) fn network_game_config(
+        &self,
+        host_slot: usize,
+        remote_slots: &[usize],
+    ) -> GameConfig {
+        let mut config = self.synced_game_config();
+        config.player_controls = [PlayerControl::RandomAi; 6];
+
+        for player_index in 0..config.player_count {
+            if player_index == host_slot || remote_slots.contains(&player_index) {
+                config.player_controls[player_index] = PlayerControl::Human;
+            } else {
+                config.player_controls[player_index] = self.player_controls[player_index];
+            }
+        }
+
+        config
+    }
+
     pub(super) fn sync_from_network_lobby(
         &mut self,
         net_mode: NetMode,

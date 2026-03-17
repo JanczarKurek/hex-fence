@@ -1,3 +1,4 @@
+mod common;
 mod components;
 mod in_game_menu;
 mod start_menu;

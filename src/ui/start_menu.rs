@@ -6,10 +6,11 @@ use bevy_simple_text_input::{TextInput, TextInputInactive, TextInputValue};
 
 use crate::app_state::{AiStrategy, AppPhase, GameConfig, PlayerColor, PlayerControl};
 use crate::network::{NetConfig, NetLobbyState, NetMode, NetRuntime, NetUiCommand};
-use crate::settings::{self, AppSettings, LastNetMode};
+use crate::settings::{AppSettings, LastNetMode};
 
 use crate::game::despawn_all;
 
+use super::common;
 use super::components::{
     AiCooldownButton, AuthorsPopup, BackToModeButton, BoardSizeButton, ConnectedPlayersText,
     ControlBindingButton, ControlBindingKind, ControlBindingValueText, LobbyPlayerListScroll,
@@ -26,13 +27,15 @@ use super::components::{
     StartMenuRoot,
 };
 use super::styles::{
-    HOVERED_BUTTON, MENU_PANEL_BG, MENU_SELECTED, MENU_START, NORMAL_BUTTON, PRESSED_BUTTON,
-    TAB_ACTIVE, TAB_INACTIVE, button_bundle, button_node, menu_text, neutral_button_color,
-    selected_button_color, white_text,
+    DROPDOWN_BG, DROPDOWN_BORDER, HOVERED_BUTTON, MENU_PANEL_BG, MENU_SELECTED, MENU_START,
+    NORMAL_BUTTON, PANEL_BORDER, POPUP_OVERLAY, PRESSED_BUTTON, SURFACE_CARD, SURFACE_CARD_BORDER,
+    SURFACE_DIM, button_bundle, button_node, menu_text, neutral_button_color, overlay_node,
+    popup_panel_bundle, popup_panel_node, selected_button_color, white_text, wrap_row_node,
 };
 use super::widgets::{
-    spawn_ai_cooldown_row, spawn_choice_row, spawn_control_binding_row, spawn_network_mode_row,
-    spawn_player_row, spawn_sound_slider_row,
+    settings_content_node, spawn_ai_cooldown_row, spawn_choice_row, spawn_close_button,
+    spawn_control_binding_row, spawn_network_mode_row, spawn_player_row, spawn_settings_tabs,
+    spawn_sound_slider_row, spawn_text_button,
 };
 
 const AI_COOLDOWN_CHOICES_MS: [u32; 5] = [250, 500, 1_000, 1_500, 2_000];
@@ -97,7 +100,7 @@ pub(super) fn setup_start_menu(
                     flex_direction: FlexDirection::Column,
                     ..default()
                 },
-                BorderColor(Color::srgb(0.22, 0.22, 0.25)),
+                BorderColor(PANEL_BORDER),
                 BackgroundColor(MENU_PANEL_BG),
             ))
             .with_children(|panel| {
@@ -146,14 +149,14 @@ pub(super) fn setup_start_menu(
                         },
                     ))
                     .with_children(|step| {
-                        step.spawn(button_bundle(
+                        spawn_text_button(
+                            step,
                             BackToModeButton,
+                            "Back",
                             button_node(120.0, 36.0, 1.0),
                             NORMAL_BUTTON,
-                        ))
-                        .with_children(|button| {
-                            button.spawn(white_text("Back", 16.0));
-                        });
+                            16.0,
+                        );
 
                         step.spawn(menu_text("Board Size", 20.0));
                         spawn_choice_row(step, &[3, 4, 5, 6], menu.board_radius);
@@ -183,7 +186,7 @@ pub(super) fn setup_start_menu(
                                         overflow: Overflow::scroll_y(),
                                         ..default()
                                     },
-                                    BackgroundColor(Color::srgba(0.10, 0.11, 0.13, 0.8)),
+                                    BackgroundColor(SURFACE_DIM),
                                 ))
                                 .with_children(|players| {
                                     players
@@ -208,10 +211,8 @@ pub(super) fn setup_start_menu(
                                                     border: UiRect::all(Val::Px(1.0)),
                                                     ..default()
                                                 },
-                                                BorderColor(Color::srgba(0.95, 0.95, 1.0, 0.1)),
-                                                BackgroundColor(Color::srgba(
-                                                    0.06, 0.07, 0.09, 0.92,
-                                                )),
+                                                BorderColor(SURFACE_CARD_BORDER),
+                                                BackgroundColor(SURFACE_CARD),
                                             ))
                                             .with_children(|row| {
                                                 row.spawn(menu_text(
@@ -285,10 +286,8 @@ pub(super) fn setup_start_menu(
                                                         display: Display::None,
                                                         ..default()
                                                     },
-                                                    BorderColor(Color::srgba(0.9, 0.9, 0.95, 0.35)),
-                                                    BackgroundColor(Color::srgba(
-                                                        0.06, 0.07, 0.1, 0.98,
-                                                    )),
+                                                    BorderColor(DROPDOWN_BORDER),
+                                                    BackgroundColor(DROPDOWN_BG),
                                                     ZIndex(20),
                                                 ))
                                                 .with_children(|menu| {
@@ -390,14 +389,7 @@ pub(super) fn setup_start_menu(
                                                     ..default()
                                                 })
                                                 .with_children(|colors| {
-                                                    for color in [
-                                                        PlayerColor::Red,
-                                                        PlayerColor::Blue,
-                                                        PlayerColor::Gold,
-                                                        PlayerColor::Teal,
-                                                        PlayerColor::Pink,
-                                                        PlayerColor::Orange,
-                                                    ] {
+                                                    for color in PlayerColor::ALL {
                                                         colors
                                                             .spawn((
                                                                 Button,
@@ -440,7 +432,7 @@ pub(super) fn setup_start_menu(
                                         row_gap: Val::Px(10.0),
                                         ..default()
                                     },
-                                    BackgroundColor(Color::srgba(0.08, 0.09, 0.11, 0.86)),
+                                    BackgroundColor(SURFACE_DIM),
                                 ))
                                 .with_children(|controls| {
                                     controls.spawn(menu_text("Global", 17.0));
@@ -539,50 +531,31 @@ pub(super) fn setup_start_menu(
                         },
                     ))
                     .with_children(|lobby| {
-                        lobby
-                            .spawn(button_bundle(
-                                BackToModeButton,
-                                button_node(120.0, 36.0, 1.0),
-                                NORMAL_BUTTON,
-                            ))
-                            .with_children(|button| {
-                                button.spawn(white_text("Back", 16.0));
-                            });
+                        spawn_text_button(
+                            lobby,
+                            BackToModeButton,
+                            "Back",
+                            button_node(120.0, 36.0, 1.0),
+                            NORMAL_BUTTON,
+                            16.0,
+                        );
 
                         lobby.spawn(menu_text("Network Lobby", 24.0));
                         lobby.spawn((ConnectedPlayersText, menu_text("", 16.0)));
 
                         lobby.spawn(menu_text("Pick Your Slot", 18.0));
-                        lobby
-                            .spawn(Node {
-                                width: Val::Percent(100.0),
-                                flex_direction: FlexDirection::Row,
-                                flex_wrap: FlexWrap::Wrap,
-                                row_gap: Val::Px(8.0),
-                                column_gap: Val::Px(8.0),
-                                ..default()
-                            })
-                            .with_children(|slots| {
-                                for slot in 0..6 {
-                                    slots
-                                        .spawn(button_bundle(
-                                            NetworkSlotButton { slot },
-                                            Node {
-                                                width: Val::Px(84.0),
-                                                height: Val::Px(36.0),
-                                                justify_content: JustifyContent::Center,
-                                                align_items: AlignItems::Center,
-                                                border: UiRect::all(Val::Px(1.0)),
-                                                ..default()
-                                            },
-                                            NORMAL_BUTTON,
-                                        ))
-                                        .with_children(|button| {
-                                            button
-                                                .spawn(white_text(format!("P{}", slot + 1), 15.0));
-                                        });
-                                }
-                            });
+                        lobby.spawn(wrap_row_node(8.0)).with_children(|slots| {
+                            for slot in 0..6 {
+                                spawn_text_button(
+                                    slots,
+                                    NetworkSlotButton { slot },
+                                    format!("P{}", slot + 1),
+                                    button_node(84.0, 36.0, 1.0),
+                                    NORMAL_BUTTON,
+                                    15.0,
+                                );
+                            }
+                        });
 
                         lobby.spawn((
                             NetworkLobbyHostOnly,
@@ -618,197 +591,64 @@ pub(super) fn setup_start_menu(
                     });
             });
 
-            root.spawn((
-                AuthorsPopup,
-                Node {
-                    width: Val::Percent(100.0),
-                    height: Val::Percent(100.0),
-                    position_type: PositionType::Absolute,
-                    justify_content: JustifyContent::Center,
-                    align_items: AlignItems::Center,
-                    display: Display::None,
-                    ..default()
-                },
-                BackgroundColor(Color::srgba(0.02, 0.03, 0.04, 0.75)),
-            ))
-            .with_children(|overlay| {
-                overlay
-                    .spawn((
-                        Node {
-                            width: Val::Percent(100.0),
-                            max_width: Val::Px(360.0),
-                            padding: UiRect::all(Val::Px(16.0)),
-                            border: UiRect::all(Val::Px(2.0)),
-                            row_gap: Val::Px(10.0),
-                            flex_direction: FlexDirection::Column,
-                            align_items: AlignItems::FlexStart,
-                            ..default()
-                        },
-                        BorderColor(Color::srgb(0.22, 0.22, 0.25)),
-                        BackgroundColor(MENU_PANEL_BG),
-                    ))
-                    .with_children(|popup| {
-                        popup.spawn(white_text("Authors", 24.0));
-                        popup.spawn(menu_text("1. Codex", 17.0));
-                        popup.spawn(menu_text("2. Janczar Knurek ;)", 17.0));
-                        popup
-                            .spawn(button_bundle(
-                                MenuSettingsCloseButton,
-                                button_node(120.0, 36.0, 1.0),
-                                NORMAL_BUTTON,
-                            ))
-                            .with_children(|button| {
-                                button.spawn(white_text("Close", 16.0));
-                            });
-                    });
-            });
+            root.spawn((AuthorsPopup, overlay_node(), BackgroundColor(POPUP_OVERLAY)))
+                .with_children(|overlay| {
+                    overlay
+                        .spawn(popup_panel_bundle(popup_panel_node(360.0, 10.0)))
+                        .with_children(|popup| {
+                            popup.spawn(white_text("Authors", 24.0));
+                            popup.spawn(menu_text("1. Codex", 17.0));
+                            popup.spawn(menu_text("2. Janczar Knurek ;)", 17.0));
+                            spawn_close_button(popup);
+                        });
+                });
 
-            root.spawn((
-                RulesPopup,
-                Node {
-                    width: Val::Percent(100.0),
-                    height: Val::Percent(100.0),
-                    position_type: PositionType::Absolute,
-                    justify_content: JustifyContent::Center,
-                    align_items: AlignItems::Center,
-                    display: Display::None,
-                    ..default()
-                },
-                BackgroundColor(Color::srgba(0.02, 0.03, 0.04, 0.75)),
-            ))
-            .with_children(|overlay| {
-                overlay
-                    .spawn((
-                        Node {
-                            width: Val::Percent(100.0),
-                            max_width: Val::Px(480.0),
-                            padding: UiRect::all(Val::Px(16.0)),
-                            border: UiRect::all(Val::Px(2.0)),
-                            row_gap: Val::Px(10.0),
-                            flex_direction: FlexDirection::Column,
-                            align_items: AlignItems::FlexStart,
-                            ..default()
-                        },
-                        BorderColor(Color::srgb(0.22, 0.22, 0.25)),
-                        BackgroundColor(MENU_PANEL_BG),
-                    ))
-                    .with_children(|popup| {
-                        popup.spawn(white_text("Rules", 24.0));
-                        popup.spawn(menu_text("1. Reach your goal side to win.", 16.0));
-                        popup.spawn(menu_text(
-                            "2. On each turn, move one pawn OR place one fence.",
-                            16.0,
-                        ));
-                        popup.spawn(menu_text(
-                            "3. Fences block 3 edges and cannot trap any player.",
-                            16.0,
-                        ));
-                        popup.spawn(menu_text(
-                            "4. If blocked by a pawn, jump over it or sidestep when needed.",
-                            16.0,
-                        ));
-                        popup
-                            .spawn(button_bundle(
-                                MenuSettingsCloseButton,
-                                button_node(120.0, 36.0, 1.0),
-                                NORMAL_BUTTON,
-                            ))
-                            .with_children(|button| {
-                                button.spawn(white_text("Close", 16.0));
-                            });
-                    });
-            });
+            root.spawn((RulesPopup, overlay_node(), BackgroundColor(POPUP_OVERLAY)))
+                .with_children(|overlay| {
+                    overlay
+                        .spawn(popup_panel_bundle(popup_panel_node(480.0, 10.0)))
+                        .with_children(|popup| {
+                            popup.spawn(white_text("Rules", 24.0));
+                            popup.spawn(menu_text("1. Reach your goal side to win.", 16.0));
+                            popup.spawn(menu_text(
+                                "2. On each turn, move one pawn OR place one fence.",
+                                16.0,
+                            ));
+                            popup.spawn(menu_text(
+                                "3. Fences block 3 edges and cannot trap any player.",
+                                16.0,
+                            ));
+                            popup.spawn(menu_text(
+                                "4. If blocked by a pawn, jump over it or sidestep when needed.",
+                                16.0,
+                            ));
+                            spawn_close_button(popup);
+                        });
+                });
 
             root.spawn((
                 MenuSettingsPopup,
-                Node {
-                    width: Val::Percent(100.0),
-                    height: Val::Percent(100.0),
-                    position_type: PositionType::Absolute,
-                    justify_content: JustifyContent::Center,
-                    align_items: AlignItems::Center,
-                    display: Display::None,
-                    ..default()
-                },
-                BackgroundColor(Color::srgba(0.02, 0.03, 0.04, 0.75)),
+                overlay_node(),
+                BackgroundColor(POPUP_OVERLAY),
             ))
             .with_children(|overlay| {
                 overlay
-                    .spawn((
-                        Node {
-                            width: Val::Percent(100.0),
-                            max_width: Val::Px(420.0),
-                            padding: UiRect::all(Val::Px(16.0)),
-                            border: UiRect::all(Val::Px(2.0)),
-                            row_gap: Val::Px(12.0),
-                            flex_direction: FlexDirection::Column,
-                            align_items: AlignItems::Stretch,
-                            min_height: Val::Px(380.0),
-                            ..default()
-                        },
-                        BorderColor(Color::srgb(0.22, 0.22, 0.25)),
-                        BackgroundColor(MENU_PANEL_BG),
-                    ))
+                    .spawn({
+                        let mut node = popup_panel_node(420.0, 12.0);
+                        node.align_items = AlignItems::Stretch;
+                        node.min_height = Val::Px(380.0);
+                        popup_panel_bundle(node)
+                    })
                     .with_children(|popup| {
                         popup.spawn(white_text("Settings", 24.0));
-
-                        popup
-                            .spawn(Node {
-                                width: Val::Percent(100.0),
-                                height: Val::Px(40.0),
-                                flex_direction: FlexDirection::Row,
-                                column_gap: Val::Px(8.0),
-                                ..default()
-                            })
-                            .with_children(|tabs| {
-                                tabs.spawn((
-                                    Button,
-                                    SettingsTabButton {
-                                        tab: SettingsTab::Sound,
-                                    },
-                                    Node {
-                                        width: Val::Px(120.0),
-                                        height: Val::Percent(100.0),
-                                        justify_content: JustifyContent::Center,
-                                        align_items: AlignItems::Center,
-                                        ..default()
-                                    },
-                                    BackgroundColor(TAB_ACTIVE),
-                                ))
-                                .with_children(|tab| {
-                                    tab.spawn(white_text("Sound", 16.0));
-                                });
-
-                                tabs.spawn((
-                                    Button,
-                                    SettingsTabButton {
-                                        tab: SettingsTab::Controls,
-                                    },
-                                    Node {
-                                        width: Val::Px(120.0),
-                                        height: Val::Percent(100.0),
-                                        justify_content: JustifyContent::Center,
-                                        align_items: AlignItems::Center,
-                                        ..default()
-                                    },
-                                    BackgroundColor(TAB_INACTIVE),
-                                ))
-                                .with_children(|tab| {
-                                    tab.spawn(white_text("Controls", 16.0));
-                                });
-                            });
+                        spawn_settings_tabs(popup, 120.0);
 
                         popup
                             .spawn((
                                 SettingsTabContent {
                                     tab: SettingsTab::Sound,
                                 },
-                                Node {
-                                    width: Val::Percent(100.0),
-                                    flex_direction: FlexDirection::Column,
-                                    row_gap: Val::Px(12.0),
-                                    ..default()
-                                },
+                                settings_content_node(12.0),
                             ))
                             .with_children(|content| {
                                 spawn_sound_slider_row(
@@ -836,12 +676,10 @@ pub(super) fn setup_start_menu(
                                 SettingsTabContent {
                                     tab: SettingsTab::Controls,
                                 },
-                                Node {
-                                    width: Val::Percent(100.0),
-                                    flex_direction: FlexDirection::Column,
-                                    row_gap: Val::Px(10.0),
-                                    display: Display::None,
-                                    ..default()
+                                {
+                                    let mut node = settings_content_node(10.0);
+                                    node.display = Display::None;
+                                    node
                                 },
                             ))
                             .with_children(|content| {
@@ -867,15 +705,7 @@ pub(super) fn setup_start_menu(
                                 );
                             });
 
-                        popup
-                            .spawn(button_bundle(
-                                MenuSettingsCloseButton,
-                                button_node(120.0, 36.0, 1.0),
-                                NORMAL_BUTTON,
-                            ))
-                            .with_children(|button| {
-                                button.spawn(white_text("Close", 16.0));
-                            });
+                        spawn_close_button(popup);
                     });
             });
         });
@@ -1007,9 +837,7 @@ pub(super) fn handle_back_to_mode_button(
                 MenuScreen::ModeSelect
             };
             menu.address_focused = false;
-            menu.show_authors_popup = false;
-            menu.show_rules_popup = false;
-            menu.show_settings_popup = false;
+            menu.clear_overlays();
             settings_ui.pending_control_binding = None;
         }
         *color = neutral_button_color(interaction).into();
@@ -1027,9 +855,7 @@ pub(super) fn handle_menu_settings_close_button(
     for (interaction, mut color) in &mut interactions {
         let interaction = *interaction;
         if interaction == Interaction::Pressed {
-            menu.show_settings_popup = false;
-            menu.show_authors_popup = false;
-            menu.show_rules_popup = false;
+            menu.clear_overlays();
             settings_ui.active_tab = SettingsTab::Sound;
             settings_ui.pending_control_binding = None;
         }
@@ -1084,19 +910,7 @@ pub(super) fn handle_menu_control_binding_capture(
     if !menu.show_settings_popup || settings_ui.active_tab != SettingsTab::Controls {
         return;
     }
-
-    let Some(kind) = settings_ui.pending_control_binding else {
-        return;
-    };
-
-    for key in keys.get_just_pressed() {
-        let changed = apply_control_binding(&mut app_settings, kind, *key);
-        settings_ui.pending_control_binding = None;
-        if changed {
-            let _ = settings::save_settings_to_disk(app_settings.clone());
-        }
-        break;
-    }
+    common::capture_control_binding(&keys, &mut settings_ui, &mut app_settings);
 }
 
 pub(super) fn sync_menu_control_binding_texts(
@@ -1108,15 +922,7 @@ pub(super) fn sync_menu_control_binding_texts(
         return;
     }
 
-    for (value_text, mut text) in &mut texts {
-        if settings_ui.pending_control_binding == Some(value_text.kind)
-            && settings_ui.active_tab == SettingsTab::Controls
-        {
-            *text = Text::new("Press key...");
-        } else {
-            *text = Text::new(control_binding_label(&app_settings, value_text.kind));
-        }
-    }
+    common::sync_control_binding_texts(&app_settings, &settings_ui, &mut texts);
 }
 
 pub(super) fn sync_menu_settings_tab_visibility(
@@ -1128,21 +934,7 @@ pub(super) fn sync_menu_settings_tab_visibility(
         return;
     }
 
-    for (tab_button, mut tab_color) in &mut tab_button_query {
-        *tab_color = if tab_button.tab == settings_ui.active_tab {
-            TAB_ACTIVE.into()
-        } else {
-            TAB_INACTIVE.into()
-        };
-    }
-
-    for (tab_content, mut node) in &mut tab_content_query {
-        node.display = if tab_content.tab == settings_ui.active_tab {
-            Display::Flex
-        } else {
-            Display::None
-        };
-    }
+    common::sync_settings_tab_ui(&settings_ui, &mut tab_button_query, &mut tab_content_query);
 }
 
 pub(super) fn handle_menu_sound_slider_input(
@@ -1156,21 +948,7 @@ pub(super) fn handle_menu_sound_slider_input(
         With<Button>,
     >,
 ) {
-    let mut changed = false;
-    for (interaction, cursor_pos, slider) in &track_query {
-        if *interaction != Interaction::Pressed {
-            continue;
-        }
-        let Some(normalized) = cursor_pos.normalized else {
-            continue;
-        };
-        slider.kind.set_value(&mut app_settings, normalized.x);
-        changed = true;
-    }
-
-    if changed {
-        let _ = settings::save_settings_to_disk(app_settings.clone());
-    }
+    common::apply_sound_slider_input(&mut app_settings, &track_query);
 }
 
 pub(super) fn sync_menu_sound_slider_visuals(
@@ -1182,14 +960,7 @@ pub(super) fn sync_menu_sound_slider_visuals(
         return;
     }
 
-    for (fill, mut node) in &mut fill_query {
-        node.width = Val::Percent(fill.kind.value(&app_settings) * 100.0);
-    }
-
-    for (value_text, mut text) in &mut value_text_query {
-        let value = (value_text.kind.value(&app_settings) * 100.0).round() as i32;
-        *text = Text::new(format!("{:>3}%", value));
-    }
+    common::sync_sound_slider_visuals(&app_settings, &mut fill_query, &mut value_text_query);
 }
 
 pub(super) fn handle_menu_option_buttons(
@@ -1270,9 +1041,8 @@ pub(super) fn handle_menu_option_buttons(
 
     let mut lobby_dirty = false;
     let mut remote_slots_for_sync = net_lobby.remote_slots.clone();
-    let selected_net_mode = configured_network_mode(&menu, &net_config);
-    let can_edit_full_lobby = menu.game_mode == StartGameMode::Local
-        || (menu.game_mode == StartGameMode::Network && matches!(selected_net_mode, NetMode::Host));
+    let selected_net_mode = menu.configured_network_mode(&net_config);
+    let can_edit_full_lobby = menu.can_edit_full_lobby(selected_net_mode);
 
     for (interaction, button) in &mut board_buttons {
         if *interaction == Interaction::Pressed && can_edit_full_lobby {
@@ -1317,7 +1087,7 @@ pub(super) fn handle_menu_option_buttons(
 
     for (interaction, button) in &mut player_detail_dropdown_buttons {
         if *interaction == Interaction::Pressed {
-            if !player_detail_dropdown_enabled(&menu, &net_config, button.player_index) {
+            if !menu.player_detail_dropdown_enabled(&net_config, button.player_index) {
                 continue;
             }
             menu.open_player_detail_dropdown =
@@ -1353,7 +1123,7 @@ pub(super) fn handle_menu_option_buttons(
     for (interaction, button) in &mut player_detail_option_buttons {
         if *interaction != Interaction::Pressed
             || button.player_index >= menu.player_count
-            || !player_detail_option_enabled(&menu, &net_config, button.player_index, button.option)
+            || !menu.player_detail_option_enabled(&net_config, button.player_index, button.option)
         {
             continue;
         }
@@ -1397,15 +1167,8 @@ pub(super) fn handle_menu_option_buttons(
         && matches!(menu.game_mode, StartGameMode::Network)
         && matches!(selected_net_mode, NetMode::Host)
     {
-        let mut synced = GameConfig::default();
-        synced.board_radius = menu.board_radius;
-        synced.player_count = menu.player_count;
-        synced.player_controls = menu.player_controls;
-        synced.player_ai_strategies = menu.player_ai_strategies;
-        synced.player_colors = menu.player_colors;
-        synced.ai_cooldown_seconds = menu.ai_cooldown_ms as f32 / 1_000.0;
         net_ui_commands.write(NetUiCommand::HostSyncLobby {
-            config: synced,
+            config: menu.synced_game_config(),
             host_slot: menu.network_local_slot,
             remote_slots: remote_slots_for_sync,
         });
@@ -1443,15 +1206,8 @@ pub(super) fn handle_network_connect_button(
             save_last_network_settings(&mut app_settings, menu.net_mode, &net_config.address);
             if matches!(menu.net_mode, NetMode::Host) {
                 menu.network_local_slot = Some(0);
-                let mut synced = GameConfig::default();
-                synced.board_radius = menu.board_radius;
-                synced.player_count = menu.player_count;
-                synced.player_controls = menu.player_controls;
-                synced.player_ai_strategies = menu.player_ai_strategies;
-                synced.player_colors = menu.player_colors;
-                synced.ai_cooldown_seconds = menu.ai_cooldown_ms as f32 / 1_000.0;
                 net_ui_commands.write(NetUiCommand::HostSyncLobby {
-                    config: synced,
+                    config: menu.synced_game_config(),
                     host_slot: menu.network_local_slot,
                     remote_slots: net_lobby.remote_slots.clone(),
                 });
@@ -1594,122 +1350,37 @@ pub(super) fn sync_menu_layout_visibility(
     ) in &mut sections
     {
         if mode_screen.is_some() {
-            node.display = if menu.screen == MenuScreen::ModeSelect
-                && !menu.show_authors_popup
-                && !menu.show_rules_popup
-                && !menu.show_settings_popup
-            {
-                Display::Flex
-            } else {
-                Display::None
-            };
+            node.display = menu.mode_select_display();
         } else if setup_screen.is_some() {
-            node.display = if menu.screen == MenuScreen::Setup {
-                Display::Flex
-            } else {
-                Display::None
-            };
+            node.display = menu.setup_display();
         } else if network_lobby_screen.is_some() {
-            node.display = if menu.screen == MenuScreen::NetworkLobby {
-                Display::Flex
-            } else {
-                Display::None
-            };
+            node.display = menu.network_lobby_display();
         } else if authors_popup.is_some() {
-            node.display = if menu.screen == MenuScreen::ModeSelect && menu.show_authors_popup {
-                Display::Flex
-            } else {
-                Display::None
-            };
+            node.display = menu.authors_popup_display();
         } else if rules_popup.is_some() {
-            node.display = if menu.screen == MenuScreen::ModeSelect && menu.show_rules_popup {
-                Display::Flex
-            } else {
-                Display::None
-            };
+            node.display = menu.rules_popup_display();
         } else if settings_popup.is_some() {
-            node.display = if menu.screen == MenuScreen::ModeSelect && menu.show_settings_popup {
-                Display::Flex
-            } else {
-                Display::None
-            };
+            node.display = menu.settings_popup_display();
         } else if local_only.is_some() {
-            node.display = if menu.screen == MenuScreen::Setup
-                && (menu.game_mode == StartGameMode::Local
-                    || menu.game_mode == StartGameMode::Network)
-            {
-                Display::Flex
-            } else {
-                Display::None
-            };
+            node.display = menu.local_setup_display();
         } else if network_only.is_some() {
-            node.display =
-                if menu.screen == MenuScreen::Setup && menu.game_mode == StartGameMode::Network {
-                    Display::Flex
-                } else {
-                    Display::None
-                };
+            node.display = menu.network_setup_display();
         } else if let Some(row) = player_row {
-            node.display = if menu.screen == MenuScreen::Setup
-                && (menu.game_mode == StartGameMode::Local
-                    || menu.game_mode == StartGameMode::Network)
-                && row.player_index < menu.player_count
-            {
-                Display::Flex
-            } else {
-                Display::None
-            };
+            node.display = menu.player_row_display(row.player_index);
         } else if let Some(ai_row) = ai_only {
-            node.display = if menu.screen == MenuScreen::Setup
-                && (menu.game_mode == StartGameMode::Local
-                    || menu.game_mode == StartGameMode::Network)
-                && ai_row.player_index < menu.player_count
-                && menu.player_controls[ai_row.player_index].is_ai()
-            {
-                Display::Flex
-            } else {
-                Display::None
-            };
+            node.display = menu.player_ai_display(ai_row.player_index);
         } else if let Some(detail_menu) = detail_menu {
-            node.display = if menu.open_player_detail_dropdown == Some(detail_menu.player_index)
-                && menu.screen == MenuScreen::Setup
-                && detail_menu.player_index < menu.player_count
-                && player_detail_dropdown_enabled(&menu, &net_config, detail_menu.player_index)
-            {
-                Display::Flex
-            } else {
-                Display::None
-            };
+            node.display = menu.detail_menu_display(&net_config, detail_menu.player_index);
         } else if let Some(detail_option) = detail_option {
-            node.display = if menu.open_player_detail_dropdown == Some(detail_option.player_index)
-                && menu.screen == MenuScreen::Setup
-                && detail_option.player_index < menu.player_count
-                && player_detail_option_enabled(
-                    &menu,
-                    &net_config,
-                    detail_option.player_index,
-                    detail_option.option,
-                ) {
-                Display::Flex
-            } else {
-                Display::None
-            };
+            node.display = menu.detail_option_display(
+                &net_config,
+                detail_option.player_index,
+                detail_option.option,
+            );
         } else if network_lobby_host_only.is_some() {
-            node.display = if menu.screen == MenuScreen::NetworkLobby
-                && matches!(net_config.mode, NetMode::Host)
-            {
-                Display::Flex
-            } else {
-                Display::None
-            };
+            node.display = menu.lobby_host_only_display(net_config.mode);
         } else if network_lobby_client_only.is_some() {
-            node.display = if menu.screen == MenuScreen::NetworkLobby
-                && matches!(net_config.mode, NetMode::Client)
-            {
-                Display::Flex
-            } else {
-                Display::None
-            };
+            node.display = menu.lobby_client_only_display(net_config.mode);
         }
     }
 }
@@ -1722,19 +1393,7 @@ pub(super) fn sync_menu_main_panel_width(
         return;
     }
 
-    let show_wide_setup = menu.screen == MenuScreen::Setup
-        && (menu.game_mode == StartGameMode::Local || menu.game_mode == StartGameMode::Network);
-
-    let width = if show_wide_setup {
-        Val::Px(980.0)
-    } else {
-        Val::Px(480.0)
-    };
-    let max_width = if show_wide_setup {
-        Val::Percent(96.0)
-    } else {
-        Val::Percent(92.0)
-    };
+    let (width, max_width) = menu.main_panel_width();
 
     for mut panel in &mut panels {
         panel.width = width;
@@ -1808,13 +1467,9 @@ pub(super) fn sync_menu_button_visuals(
             .into()
         } else if let Some(button) = player_detail_option {
             selected_button_color(
-                player_detail_option_enabled(
-                    &menu,
-                    &net_config,
-                    button.player_index,
-                    button.option,
-                ) && selected_player_detail_option(&menu, &net_lobby, button.player_index)
-                    == Some(button.option),
+                menu.player_detail_option_enabled(&net_config, button.player_index, button.option)
+                    && selected_player_detail_option(&menu, &net_lobby, button.player_index)
+                        == Some(button.option),
                 *interaction,
             )
             .into()
@@ -1853,18 +1508,7 @@ pub(super) fn sync_menu_button_visuals(
                 &net_lobby,
             ));
         } else if start_text.is_some() {
-            let label = if menu.screen == MenuScreen::NetworkLobby {
-                if matches!(net_config.mode, NetMode::Client) {
-                    "Waiting for Host"
-                } else {
-                    "Start Network Game"
-                }
-            } else if menu.game_mode == StartGameMode::Network && menu.net_mode == NetMode::Client {
-                "Waiting for Host"
-            } else {
-                "Start Game"
-            };
-            *text = Text::new(label);
+            *text = Text::new(menu.start_game_label(net_config.mode));
         }
     }
 }
@@ -1899,33 +1543,6 @@ pub(super) fn sync_player_detail_labels(
 pub(super) fn touch_legacy_network_slot_buttons(buttons: Query<&NetworkSlotButton, With<Button>>) {
     for button in &buttons {
         let _ = button.slot;
-    }
-}
-
-fn apply_control_binding(
-    app_settings: &mut AppSettings,
-    binding_kind: ControlBindingKind,
-    key: KeyCode,
-) -> bool {
-    match binding_kind {
-        ControlBindingKind::ToggleFenceMode => app_settings.controls.set_toggle_fence_mode_key(key),
-        ControlBindingKind::CycleFenceShape => app_settings.controls.set_cycle_fence_shape_key(key),
-        ControlBindingKind::RotateFenceOrientation => {
-            app_settings.controls.set_rotate_fence_orientation_key(key)
-        }
-    }
-}
-
-fn control_binding_label(
-    app_settings: &AppSettings,
-    binding_kind: ControlBindingKind,
-) -> &'static str {
-    match binding_kind {
-        ControlBindingKind::ToggleFenceMode => app_settings.controls.toggle_fence_mode_label(),
-        ControlBindingKind::CycleFenceShape => app_settings.controls.cycle_fence_shape_label(),
-        ControlBindingKind::RotateFenceOrientation => {
-            app_settings.controls.rotate_fence_orientation_label()
-        }
     }
 }
 
@@ -1977,19 +1594,8 @@ pub(super) fn handle_start_game_button(
                         &net_config.address,
                     );
                 }
-                game_config.board_radius = menu.board_radius;
                 if menu.game_mode == StartGameMode::Local {
-                    game_config.player_count = menu.player_count;
-                    game_config.ai_cooldown_seconds = menu.ai_cooldown_ms as f32 / 1_000.0;
-                    game_config.player_controls = [PlayerControl::Human; 6];
-                    game_config.player_ai_strategies = [AiStrategy::Heuristic; 6];
-                    game_config.player_colors = menu.player_colors;
-                    for player_index in 0..menu.player_count {
-                        game_config.player_controls[player_index] =
-                            menu.player_controls[player_index];
-                        game_config.player_ai_strategies[player_index] =
-                            menu.player_ai_strategies[player_index];
-                    }
+                    *game_config = menu.local_game_config();
                 } else {
                     let host_slot = menu.network_local_slot.or(net_lobby.host_slot).unwrap_or(0);
                     if host_slot >= menu.player_count
@@ -1998,8 +1604,7 @@ pub(super) fn handle_start_game_button(
                         *color = NORMAL_BUTTON.into();
                         continue;
                     }
-                    *game_config =
-                        build_network_game_config(&menu, host_slot, &net_lobby.remote_slots);
+                    *game_config = menu.network_game_config(host_slot, &net_lobby.remote_slots);
                     net_config.local_player_index = host_slot;
                 }
                 next_phase.set(AppPhase::InGame);
@@ -2108,59 +1713,6 @@ fn selected_player_detail_option(
     None
 }
 
-fn player_detail_dropdown_enabled(
-    menu: &MenuSelection,
-    net_config: &NetConfig,
-    player_index: usize,
-) -> bool {
-    if player_index >= menu.player_count {
-        return false;
-    }
-    if menu.player_controls[player_index].is_ai() {
-        return menu.game_mode == StartGameMode::Local
-            || (menu.game_mode == StartGameMode::Network
-                && matches!(configured_network_mode(menu, net_config), NetMode::Host));
-    }
-    menu.game_mode == StartGameMode::Network
-}
-
-fn player_detail_option_enabled(
-    menu: &MenuSelection,
-    net_config: &NetConfig,
-    player_index: usize,
-    option: PlayerDetailOption,
-) -> bool {
-    if player_index >= menu.player_count {
-        return false;
-    }
-
-    if menu.player_controls[player_index].is_ai() {
-        if !(menu.game_mode == StartGameMode::Local
-            || (menu.game_mode == StartGameMode::Network
-                && matches!(configured_network_mode(menu, net_config), NetMode::Host)))
-        {
-            return false;
-        }
-        return matches!(
-            option,
-            PlayerDetailOption::Heuristic | PlayerDetailOption::AlphaBeta
-        );
-    }
-
-    if menu.game_mode != StartGameMode::Network {
-        return false;
-    }
-
-    match configured_network_mode(menu, net_config) {
-        NetMode::Host => matches!(
-            option,
-            PlayerDetailOption::Host | PlayerDetailOption::Client
-        ),
-        NetMode::Client => matches!(option, PlayerDetailOption::Client),
-        NetMode::Local => false,
-    }
-}
-
 fn network_slot_owner_for_player(
     player_index: usize,
     menu: &MenuSelection,
@@ -2190,38 +1742,6 @@ fn player_color_button_color(
         Interaction::Hovered => Color::srgba(base.red, base.green, base.blue, 0.85),
         Interaction::Pressed => color.color(),
         Interaction::None => Color::srgba(base.red, base.green, base.blue, 0.45),
-    }
-}
-
-fn build_network_game_config(
-    menu: &MenuSelection,
-    host_slot: usize,
-    remote_slots: &[usize],
-) -> GameConfig {
-    let mut config = GameConfig::default();
-    config.board_radius = menu.board_radius;
-    config.player_count = menu.player_count;
-    config.ai_cooldown_seconds = menu.ai_cooldown_ms as f32 / 1_000.0;
-    config.player_controls = [PlayerControl::RandomAi; 6];
-    config.player_ai_strategies = menu.player_ai_strategies;
-    config.player_colors = menu.player_colors;
-
-    for player_index in 0..config.player_count {
-        if player_index == host_slot || remote_slots.contains(&player_index) {
-            config.player_controls[player_index] = PlayerControl::Human;
-        } else {
-            config.player_controls[player_index] = menu.player_controls[player_index];
-        }
-    }
-
-    config
-}
-
-fn configured_network_mode(menu: &MenuSelection, net_config: &NetConfig) -> NetMode {
-    if menu.game_mode == StartGameMode::Network {
-        menu.net_mode
-    } else {
-        net_config.mode
     }
 }
 
@@ -2300,5 +1820,5 @@ fn save_last_network_settings(app_settings: &mut AppSettings, mode: NetMode, add
     app_settings.network.mode = mapped_mode;
     app_settings.network.address = address.to_string();
     app_settings.network.local_player_index = local_player_index_for_mode(mode);
-    let _ = settings::save_settings_to_disk(app_settings.clone());
+    common::save_settings(app_settings);
 }

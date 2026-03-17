@@ -5,13 +5,72 @@ use crate::network::NetMode;
 
 use super::components::{
     AiCooldownButton, BoardSizeButton, ControlBindingButton, ControlBindingKind,
-    ControlBindingValueText, NetworkModeButton, PlayerCountButton, SoundSliderFill,
-    SoundSliderKind, SoundSliderTrack, SoundSliderValueText,
+    ControlBindingValueText, MenuSettingsCloseButton, NetworkModeButton, PlayerCountButton,
+    SettingsTab, SettingsTabButton, SoundSliderFill, SoundSliderKind, SoundSliderTrack,
+    SoundSliderValueText,
 };
 use super::styles::{
-    MENU_SELECTED, NORMAL_BUTTON, SLIDER_FILL, SLIDER_TRACK, VALUE_TEXT, button_bundle,
-    button_node, row_node, selected_button_color, text_bundle, white_text,
+    MENU_SELECTED, NORMAL_BUTTON, SLIDER_FILL, SLIDER_TRACK, TAB_ACTIVE, TAB_INACTIVE, VALUE_TEXT,
+    button_bundle, button_node, column_node, row_node, selected_button_color, tab_button_node,
+    text_bundle, white_text,
 };
+
+pub(super) fn spawn_text_button<C: Component>(
+    parent: &mut ChildSpawnerCommands,
+    marker: C,
+    label: impl Into<String>,
+    node: Node,
+    background: Color,
+    font_size: f32,
+) {
+    parent
+        .spawn(button_bundle(marker, node, background))
+        .with_children(|button| {
+            button.spawn(white_text(label, font_size));
+        });
+}
+
+pub(super) fn spawn_close_button(parent: &mut ChildSpawnerCommands) {
+    spawn_text_button(
+        parent,
+        MenuSettingsCloseButton,
+        "Close",
+        button_node(120.0, 36.0, 1.0),
+        NORMAL_BUTTON,
+        16.0,
+    );
+}
+
+pub(super) fn spawn_settings_tabs(parent: &mut ChildSpawnerCommands, width_px: f32) {
+    parent
+        .spawn(Node {
+            width: Val::Percent(100.0),
+            height: Val::Px(40.0),
+            flex_direction: FlexDirection::Row,
+            column_gap: Val::Px(8.0),
+            ..default()
+        })
+        .with_children(|tabs| {
+            for (tab, label, active) in [
+                (SettingsTab::Sound, "Sound", true),
+                (SettingsTab::Controls, "Controls", false),
+            ] {
+                tabs.spawn((
+                    Button,
+                    SettingsTabButton { tab },
+                    tab_button_node(width_px),
+                    BackgroundColor(if active { TAB_ACTIVE } else { TAB_INACTIVE }),
+                ))
+                .with_children(|button| {
+                    button.spawn(white_text(label, 16.0));
+                });
+            }
+        });
+}
+
+pub(super) fn settings_content_node(row_gap_px: f32) -> Node {
+    column_node(row_gap_px)
+}
 
 pub(super) fn spawn_choice_row(parent: &mut ChildSpawnerCommands, choices: &[i32], selected: i32) {
     parent.spawn(row_node(8.0)).with_children(|row| {

@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 
-use crate::app_state::{AiStrategy, GameConfig};
+use crate::app_state::GameConfig;
 
 use super::components::{
     HoveredGoalPreview, InGameHudUi, PlayerListEntry, PlayerListLabel, PlayerPanelBody,
@@ -224,10 +224,9 @@ pub fn update_turn_indicator(
         let fences_left = turn_state.fences_left[turn_state.current_player];
         let current_control = game_config.player_control(turn_state.current_player);
         let control_suffix = if current_control.is_ai() {
-            match game_config.player_ai_strategy(turn_state.current_player) {
-                AiStrategy::Heuristic => " [AI:H]",
-                AiStrategy::AlphaBeta => " [AI:AB]",
-            }
+            game_config
+                .player_ai_strategy(turn_state.current_player)
+                .short_label()
         } else {
             ""
         };
@@ -257,10 +256,7 @@ pub fn update_turn_indicator(
             " "
         };
         let control_suffix = if game_config.player_control(player_index).is_ai() {
-            match game_config.player_ai_strategy(player_index) {
-                AiStrategy::Heuristic => " [AI:H]",
-                AiStrategy::AlphaBeta => " [AI:AB]",
-            }
+            game_config.player_ai_strategy(player_index).short_label()
         } else {
             ""
         };

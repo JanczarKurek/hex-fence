@@ -1,6 +1,19 @@
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
+pub const MAX_PLAYERS: usize = 6;
+pub const DEFAULT_PLAYER_CONTROLS: [PlayerControl; MAX_PLAYERS] =
+    [PlayerControl::Human; MAX_PLAYERS];
+pub const DEFAULT_AI_STRATEGIES: [AiStrategy; MAX_PLAYERS] = [AiStrategy::Heuristic; MAX_PLAYERS];
+pub const DEFAULT_PLAYER_COLORS: [PlayerColor; MAX_PLAYERS] = [
+    PlayerColor::Red,
+    PlayerColor::Blue,
+    PlayerColor::Gold,
+    PlayerColor::Teal,
+    PlayerColor::Pink,
+    PlayerColor::Orange,
+];
+
 #[derive(States, Default, Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub enum AppPhase {
     #[default]
@@ -42,6 +55,15 @@ pub enum AiStrategy {
     AlphaBeta,
 }
 
+impl AiStrategy {
+    pub fn short_label(self) -> &'static str {
+        match self {
+            Self::Heuristic => " [AI:H]",
+            Self::AlphaBeta => " [AI:AB]",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PlayerColor {
     Red,
@@ -53,6 +75,8 @@ pub enum PlayerColor {
 }
 
 impl PlayerColor {
+    pub const ALL: [Self; MAX_PLAYERS] = DEFAULT_PLAYER_COLORS;
+
     pub fn color(self) -> Color {
         match self {
             Self::Red => Color::srgb(0.92, 0.28, 0.24),
@@ -81,30 +105,9 @@ impl Default for GameConfig {
         Self {
             board_radius: 4,
             player_count: 3,
-            player_controls: [
-                PlayerControl::Human,
-                PlayerControl::Human,
-                PlayerControl::Human,
-                PlayerControl::Human,
-                PlayerControl::Human,
-                PlayerControl::Human,
-            ],
-            player_ai_strategies: [
-                AiStrategy::Heuristic,
-                AiStrategy::Heuristic,
-                AiStrategy::Heuristic,
-                AiStrategy::Heuristic,
-                AiStrategy::Heuristic,
-                AiStrategy::Heuristic,
-            ],
-            player_colors: [
-                PlayerColor::Red,
-                PlayerColor::Blue,
-                PlayerColor::Gold,
-                PlayerColor::Teal,
-                PlayerColor::Pink,
-                PlayerColor::Orange,
-            ],
+            player_controls: DEFAULT_PLAYER_CONTROLS,
+            player_ai_strategies: DEFAULT_AI_STRATEGIES,
+            player_colors: DEFAULT_PLAYER_COLORS,
             ai_cooldown_seconds: 1.0,
         }
     }

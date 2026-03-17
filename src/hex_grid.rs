@@ -48,6 +48,10 @@ impl AxialCoord {
         Vec2::new(x, y)
     }
 
+    pub fn shade_index(self) -> i32 {
+        (self.q - self.r).rem_euclid(3)
+    }
+
     pub fn from_world(world: Vec2) -> Self {
         let q = ((3.0_f32).sqrt() / 3.0 * world.x - world.y / 3.0) / TILE_RADIUS;
         let r = ((2.0 / 3.0) * world.y) / TILE_RADIUS;

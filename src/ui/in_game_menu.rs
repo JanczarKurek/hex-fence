@@ -3,10 +3,11 @@ use bevy::ui::RelativeCursorPosition;
 
 use crate::app_state::{AppPhase, RematchRequested};
 use crate::game::state::TurnState;
-use crate::settings::{self, AppSettings};
+use crate::settings::AppSettings;
 
 use crate::game::despawn_all;
 
+use super::common;
 use super::components::{
     ControlBindingButton, ControlBindingKind, ControlBindingValueText, ExitButton, InGameUiRoot,
     RematchButton, RematchPanel, SettingsPopup, SettingsTab, SettingsTabButton, SettingsTabContent,
@@ -269,7 +270,7 @@ pub(super) fn cleanup_in_game_ui(
     app_settings: Res<AppSettings>,
 ) {
     if settings_ui.open {
-        let _ = settings::save_settings_to_disk(app_settings.clone());
+        common::save_settings(&app_settings);
     }
     settings_ui.pending_control_binding = None;
     despawn_all!(commands, roots);
@@ -291,9 +292,7 @@ pub(super) fn handle_settings_toggle_button(
             settings_ui.open = !settings_ui.open;
             if was_open && !settings_ui.open {
                 settings_ui.pending_control_binding = None;
-            }
-            if was_open && !settings_ui.open {
-                let _ = settings::save_settings_to_disk(app_settings.clone());
+                common::save_settings(&app_settings);
             }
         }
         *color = neutral_button_color(interaction).into();
@@ -376,19 +375,7 @@ pub(super) fn handle_control_binding_capture(
     if !settings_ui.open || settings_ui.active_tab != SettingsTab::Controls {
         return;
     }
-
-    let Some(kind) = settings_ui.pending_control_binding else {
-        return;
-    };
-
-    for key in keys.get_just_pressed() {
-        let changed = apply_control_binding(&mut app_settings, kind, *key);
-        settings_ui.pending_control_binding = None;
-        if changed {
-            let _ = settings::save_settings_to_disk(app_settings.clone());
-        }
-        break;
-    }
+    common::capture_control_binding(&keys, &mut settings_ui, &mut app_settings);
 }
 
 pub(super) fn sync_control_binding_texts(
@@ -400,15 +387,7 @@ pub(super) fn sync_control_binding_texts(
         return;
     }
 
-    for (value_text, mut text) in &mut texts {
-        if settings_ui.pending_control_binding == Some(value_text.kind)
-            && settings_ui.active_tab == SettingsTab::Controls
-        {
-            *text = Text::new("Press key...");
-        } else {
-            *text = Text::new(control_binding_label(&app_settings, value_text.kind));
-        }
-    }
+    common::sync_control_binding_texts(&app_settings, &settings_ui, &mut texts);
 }
 
 pub(super) fn sync_control_binding_button_visuals(
@@ -442,44 +421,14 @@ pub(super) fn sync_settings_popup_visibility(
         };
     }
 
-    for (tab_button, mut tab_color) in &mut tab_button_query {
-        *tab_color = if tab_button.tab == settings_ui.active_tab {
-            TAB_ACTIVE.into()
-        } else {
-            TAB_INACTIVE.into()
-        };
-    }
-
-    for (tab_content, mut tab_node) in &mut tab_content_query {
-        tab_node.display = if tab_content.tab == settings_ui.active_tab {
-            Display::Flex
-        } else {
-            Display::None
-        };
-    }
+    common::sync_settings_tab_ui(&settings_ui, &mut tab_button_query, &mut tab_content_query);
 }
 
 pub(super) fn handle_sound_slider_input(
     mut app_settings: ResMut<AppSettings>,
     track_query: Query<(&Interaction, &RelativeCursorPosition, &SoundSliderTrack), With<Button>>,
 ) {
-    let mut changed = false;
-    for (interaction, cursor_pos, slider) in &track_query {
-        if *interaction != Interaction::Pressed {
-            continue;
-        }
-
-        let Some(normalized) = cursor_pos.normalized else {
-            continue;
-        };
-
-        slider.kind.set_value(&mut app_settings, normalized.x);
-        changed = true;
-    }
-
-    if changed {
-        let _ = settings::save_settings_to_disk(app_settings.clone());
-    }
+    common::apply_sound_slider_input(&mut app_settings, &track_query);
 }
 
 pub(super) fn sync_sound_slider_visuals(
@@ -491,39 +440,5 @@ pub(super) fn sync_sound_slider_visuals(
         return;
     }
 
-    for (fill, mut node) in &mut fill_query {
-        node.width = Val::Percent(fill.kind.value(&app_settings) * 100.0);
-    }
-
-    for (value_text, mut text) in &mut value_text_query {
-        let value = (value_text.kind.value(&app_settings) * 100.0).round() as i32;
-        *text = Text::new(format!("{:>3}%", value));
-    }
-}
-
-fn apply_control_binding(
-    app_settings: &mut AppSettings,
-    binding_kind: ControlBindingKind,
-    key: KeyCode,
-) -> bool {
-    match binding_kind {
-        ControlBindingKind::ToggleFenceMode => app_settings.controls.set_toggle_fence_mode_key(key),
-        ControlBindingKind::CycleFenceShape => app_settings.controls.set_cycle_fence_shape_key(key),
-        ControlBindingKind::RotateFenceOrientation => {
-            app_settings.controls.set_rotate_fence_orientation_key(key)
-        }
-    }
-}
-
-fn control_binding_label(
-    app_settings: &AppSettings,
-    binding_kind: ControlBindingKind,
-) -> &'static str {
-    match binding_kind {
-        ControlBindingKind::ToggleFenceMode => app_settings.controls.toggle_fence_mode_label(),
-        ControlBindingKind::CycleFenceShape => app_settings.controls.cycle_fence_shape_label(),
-        ControlBindingKind::RotateFenceOrientation => {
-            app_settings.controls.rotate_fence_orientation_label()
-        }
-    }
+    common::sync_sound_slider_visuals(&app_settings, &mut fill_query, &mut value_text_query);
 }

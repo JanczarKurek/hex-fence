@@ -16,9 +16,8 @@ pub fn spawn_pawn_entities(
 ) {
     let pawn_mesh = meshes.add(RegularPolygon::new(TILE_RADIUS * 0.45, 24));
 
-    for player in &turn_state.players {
-        let start = player.start_coord(turn_state.board_radius);
-        let world = start.to_world();
+    for (player, position) in turn_state.players.iter().zip(&turn_state.pawn_positions) {
+        let world = position.to_world();
 
         commands.spawn((
             Pawn {

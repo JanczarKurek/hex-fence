@@ -43,7 +43,7 @@ fn spawn_board(
             }
 
             let world_pos = coord.to_world();
-            let color = normal_tile_color((q - r).rem_euclid(3));
+            let color = normal_tile_color(coord.shade_index());
 
             commands.spawn((
                 BoardTile { coord },
@@ -75,8 +75,7 @@ fn update_goal_preview(
     let Some(player_index) = hovered_preview.player_index else {
         for (tile, material_handle) in &board_tiles {
             if let Some(material) = materials.get_mut(material_handle) {
-                let shade_index = (tile.coord.q - tile.coord.r).rem_euclid(3);
-                material.color = normal_tile_color(shade_index);
+                material.color = normal_tile_color(tile.coord.shade_index());
             }
         }
         return;
@@ -90,7 +89,7 @@ fn update_goal_preview(
     let player_srgba = player.pawn_color.to_srgba();
 
     for (tile, material_handle) in &board_tiles {
-        let shade_index = (tile.coord.q - tile.coord.r).rem_euclid(3);
+        let shade_index = tile.coord.shade_index();
         let color = if tile.coord.is_on_side(goal_side, turn_state.board_radius) {
             highlighted_goal_tile_color(player_srgba, shade_index)
         } else {
