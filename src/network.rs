@@ -1,8 +1,10 @@
+use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::Mutex;
 use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
 use std::thread;
+use std::time::Duration;
 
 use bevy::prelude::*;
 
@@ -12,6 +14,8 @@ use crate::game::state::GameAction;
 use crate::settings::{AppSettings, LastNetMode};
 
 pub struct NetworkPlugin;
+
+type PeerId = u64;
 
 impl Plugin for NetworkPlugin {
     fn build(&self, app: &mut App) {
@@ -82,9 +86,11 @@ impl NetConfig {
 #[derive(Resource, Default)]
 pub struct NetRuntime {
     active_config: Option<NetConfig>,
-    outgoing: Option<Sender<NetMessage>>,
+    outgoing: Option<Sender<NetCommand>>,
     incoming: Option<Mutex<Receiver<NetEvent>>>,
     pub connected: bool,
+    pub connected_peers: usize,
+    pub peer_assignments: HashMap<PeerId, Option<usize>>,
     start_sent: bool,
 }
 
@@ -92,7 +98,7 @@ pub struct NetRuntime {
 pub struct NetLobbyState {
     pub config: GameConfig,
     pub host_slot: Option<usize>,
-    pub client_slot: Option<usize>,
+    pub remote_slots: Vec<usize>,
 }
 
 impl Default for NetLobbyState {
@@ -100,17 +106,17 @@ impl Default for NetLobbyState {
         Self {
             config: GameConfig::default(),
             host_slot: Some(0),
-            client_slot: None,
+            remote_slots: Vec::new(),
         }
     }
 }
 
-#[derive(Event, Clone, Copy, Debug)]
+#[derive(Event, Clone, Debug)]
 pub enum NetUiCommand {
     HostSyncLobby {
         config: GameConfig,
         host_slot: Option<usize>,
-        client_slot: Option<usize>,
+        remote_slots: Vec<usize>,
     },
     SelectLocalSlot(Option<usize>),
 }
@@ -124,35 +130,85 @@ impl NetRuntime {
             }
         }
     }
+
+    pub fn claimed_remote_slots(&self) -> Vec<usize> {
+        let mut slots = self
+            .peer_assignments
+            .values()
+            .flatten()
+            .copied()
+            .collect::<Vec<_>>();
+        slots.sort_unstable();
+        slots.dedup();
+        slots
+    }
+
+    pub fn request_reconnect(&mut self) {
+        self.active_config = None;
+        self.connected = false;
+        self.connected_peers = 0;
+        self.peer_assignments.clear();
+        self.start_sent = false;
+    }
 }
 
-#[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 enum NetMessage {
     StartGame {
         config: GameConfig,
-        client_player_index: usize,
+        local_player_index: Option<usize>,
     },
     LobbySync {
         config: GameConfig,
         host_slot: Option<usize>,
-        client_slot: Option<usize>,
+        remote_slots: Vec<usize>,
     },
+    AssignedSlot(Option<usize>),
     LobbySelectSlot(Option<usize>),
     Action(GameAction),
     RematchRequest,
+}
+
+#[derive(Clone, Debug)]
+enum NetCommand {
+    Broadcast(NetMessage),
+    BroadcastExcept {
+        excluded_peer: PeerId,
+        message: NetMessage,
+    },
+    SendToPeer {
+        peer_id: PeerId,
+        message: NetMessage,
+    },
 }
 
 #[derive(Debug)]
 enum NetEvent {
     Connected,
     Disconnected,
-    Message(NetMessage),
+    PeerConnected(PeerId),
+    PeerDisconnected(PeerId),
+    Message {
+        peer_id: Option<PeerId>,
+        message: NetMessage,
+    },
+}
+
+#[derive(Debug)]
+enum SocketEvent {
+    Message {
+        peer_id: PeerId,
+        message: NetMessage,
+    },
+    Disconnected(PeerId),
 }
 
 fn mark_local_connected_if_needed(net_config: Res<NetConfig>, mut runtime: ResMut<NetRuntime>) {
     if matches!(net_config.mode, NetMode::Local) {
         runtime.connected = true;
         runtime.active_config = Some(net_config.clone());
+        runtime.connected_peers = 0;
+        runtime.peer_assignments.clear();
     }
 }
 
@@ -162,17 +218,91 @@ fn sanitize_slot(slot: Option<usize>, player_count: usize) -> Option<usize> {
 
 fn normalize_lobby(lobby: &mut NetLobbyState) {
     lobby.host_slot = sanitize_slot(lobby.host_slot, lobby.config.player_count);
-    lobby.client_slot = sanitize_slot(lobby.client_slot, lobby.config.player_count);
-    if lobby.host_slot == lobby.client_slot {
-        lobby.client_slot = None;
-    }
+    lobby
+        .remote_slots
+        .retain(|slot| *slot < lobby.config.player_count && Some(*slot) != lobby.host_slot);
+    lobby.remote_slots.sort_unstable();
+    lobby.remote_slots.dedup();
 }
 
-fn send_lobby_sync(outgoing: &Sender<NetMessage>, lobby: &NetLobbyState) {
-    let _ = outgoing.send(NetMessage::LobbySync {
+fn normalize_peer_assignments(
+    runtime: &mut NetRuntime,
+    lobby: &NetLobbyState,
+) -> Vec<(PeerId, Option<usize>)> {
+    let mut updates = Vec::new();
+
+    for (peer_id, slot) in &mut runtime.peer_assignments {
+        if let Some(value) = *slot
+            && !lobby.remote_slots.contains(&value)
+        {
+            *slot = None;
+            updates.push((*peer_id, None));
+        }
+    }
+
+    let mut seen = HashMap::<usize, PeerId>::new();
+    let mut collisions = Vec::new();
+    for (peer_id, slot) in &runtime.peer_assignments {
+        if let Some(value) = slot {
+            if let Some(other) = seen.insert(*value, *peer_id) {
+                collisions.push(other.max(*peer_id));
+            }
+        }
+    }
+
+    for peer_id in collisions {
+        if let Some(slot) = runtime.peer_assignments.get_mut(&peer_id)
+            && slot.take().is_some()
+        {
+            updates.push((peer_id, None));
+        }
+    }
+
+    updates.extend(auto_assign_available_slots(runtime, lobby));
+
+    updates
+}
+
+fn auto_assign_available_slots(
+    runtime: &mut NetRuntime,
+    lobby: &NetLobbyState,
+) -> Vec<(PeerId, Option<usize>)> {
+    let mut available_slots = lobby.remote_slots.clone();
+    let claimed_slots = runtime.claimed_remote_slots();
+    available_slots.retain(|slot| !claimed_slots.contains(slot));
+
+    let mut waiting_peers = runtime
+        .peer_assignments
+        .iter()
+        .filter_map(|(peer_id, slot)| slot.is_none().then_some(*peer_id))
+        .collect::<Vec<_>>();
+    waiting_peers.sort_unstable();
+
+    let mut updates = Vec::new();
+    for peer_id in waiting_peers {
+        let Some(slot) = available_slots.first().copied() else {
+            break;
+        };
+        available_slots.remove(0);
+        runtime.peer_assignments.insert(peer_id, Some(slot));
+        updates.push((peer_id, Some(slot)));
+    }
+
+    updates
+}
+
+fn send_lobby_sync(outgoing: &Sender<NetCommand>, lobby: &NetLobbyState) {
+    let _ = outgoing.send(NetCommand::Broadcast(NetMessage::LobbySync {
         config: lobby.config,
         host_slot: lobby.host_slot,
-        client_slot: lobby.client_slot,
+        remote_slots: lobby.remote_slots.clone(),
+    }));
+}
+
+fn send_assigned_slot(outgoing: &Sender<NetCommand>, peer_id: PeerId, slot: Option<usize>) {
+    let _ = outgoing.send(NetCommand::SendToPeer {
+        peer_id,
+        message: NetMessage::AssignedSlot(slot),
     });
 }
 
@@ -194,13 +324,21 @@ fn reconfigure_network_runtime(
     mut runtime: ResMut<NetRuntime>,
     mut lobby: ResMut<NetLobbyState>,
 ) {
-    if runtime.active_config.as_ref() == Some(net_config.as_ref()) {
+    if runtime
+        .active_config
+        .as_ref()
+        .map(|config| (config.mode, config.address.as_str()))
+        == Some((net_config.mode, net_config.address.as_str()))
+    {
+        runtime.active_config = Some(net_config.clone());
         return;
     }
 
     runtime.outgoing = None;
     runtime.incoming = None;
     runtime.connected = false;
+    runtime.connected_peers = 0;
+    runtime.peer_assignments.clear();
     runtime.start_sent = false;
     runtime.active_config = Some(net_config.clone());
 
@@ -210,45 +348,26 @@ fn reconfigure_network_runtime(
         return;
     }
 
-    let (to_thread_tx, to_thread_rx) = mpsc::channel::<NetMessage>();
+    let (to_thread_tx, to_thread_rx) = mpsc::channel::<NetCommand>();
     let (to_game_tx, to_game_rx) = mpsc::channel::<NetEvent>();
     let mode = net_config.mode;
     let address = net_config.address.clone();
 
     thread::spawn(move || match mode {
-        NetMode::Host => {
-            let Ok(listener) = TcpListener::bind(&address) else {
-                let _ = to_game_tx.send(NetEvent::Disconnected);
-                return;
-            };
-
-            let Ok((stream, _)) = listener.accept() else {
-                let _ = to_game_tx.send(NetEvent::Disconnected);
-                return;
-            };
-
-            run_socket(stream, to_thread_rx, to_game_tx);
-        }
-        NetMode::Client => {
-            let Ok(stream) = TcpStream::connect(&address) else {
-                let _ = to_game_tx.send(NetEvent::Disconnected);
-                return;
-            };
-
-            run_socket(stream, to_thread_rx, to_game_tx);
-        }
+        NetMode::Host => run_host_manager(address, to_thread_rx, to_game_tx),
+        NetMode::Client => run_client_manager(address, to_thread_rx, to_game_tx),
         NetMode::Local => {}
     });
 
     runtime.outgoing = Some(to_thread_tx);
     runtime.incoming = Some(Mutex::new(to_game_rx));
     lobby.host_slot = Some(0);
-    lobby.client_slot = None;
+    lobby.remote_slots.clear();
 }
 
 fn handle_network_ui_commands(
-    net_config: Res<NetConfig>,
-    runtime: Res<NetRuntime>,
+    mut net_config: ResMut<NetConfig>,
+    mut runtime: ResMut<NetRuntime>,
     mut lobby: ResMut<NetLobbyState>,
     mut commands: EventReader<NetUiCommand>,
 ) {
@@ -257,31 +376,37 @@ fn handle_network_ui_commands(
     }
 
     let mut should_sync = false;
+    let mut peer_updates = Vec::new();
+
     for command in commands.read() {
-        match *command {
+        match command {
             NetUiCommand::HostSyncLobby {
                 config,
                 host_slot,
-                client_slot,
+                remote_slots,
             } => {
                 if !matches!(net_config.mode, NetMode::Host) {
                     continue;
                 }
-                lobby.config = config;
-                lobby.host_slot = host_slot;
-                lobby.client_slot = client_slot;
+                lobby.config = *config;
+                lobby.host_slot = *host_slot;
+                lobby.remote_slots = remote_slots.clone();
                 normalize_lobby(&mut lobby);
+                peer_updates = normalize_peer_assignments(&mut runtime, &lobby);
                 should_sync = true;
             }
             NetUiCommand::SelectLocalSlot(slot) => match net_config.mode {
                 NetMode::Host => {
-                    lobby.host_slot = slot;
+                    lobby.host_slot = *slot;
                     normalize_lobby(&mut lobby);
+                    peer_updates = normalize_peer_assignments(&mut runtime, &lobby);
                     should_sync = true;
                 }
                 NetMode::Client => {
+                    net_config.local_player_index = slot.unwrap_or(usize::MAX);
                     if let Some(outgoing) = &runtime.outgoing {
-                        let _ = outgoing.send(NetMessage::LobbySelectSlot(slot));
+                        let _ = outgoing
+                            .send(NetCommand::Broadcast(NetMessage::LobbySelectSlot(*slot)));
                     }
                 }
                 NetMode::Local => {}
@@ -289,66 +414,218 @@ fn handle_network_ui_commands(
         }
     }
 
-    if should_sync
-        && matches!(net_config.mode, NetMode::Host)
-        && runtime.connected
-        && let Some(outgoing) = &runtime.outgoing
-    {
+    if !matches!(net_config.mode, NetMode::Host) || !runtime.connected {
+        return;
+    }
+
+    let Some(outgoing) = &runtime.outgoing else {
+        return;
+    };
+
+    for (peer_id, slot) in peer_updates {
+        send_assigned_slot(outgoing, peer_id, slot);
+    }
+
+    if should_sync {
         send_lobby_sync(outgoing, &lobby);
     }
 }
 
-fn run_socket(stream: TcpStream, outbound: Receiver<NetMessage>, inbound: Sender<NetEvent>) {
-    let _ = inbound.send(NetEvent::Connected);
-
-    let Ok(read_stream) = stream.try_clone() else {
+fn run_host_manager(address: String, outbound: Receiver<NetCommand>, inbound: Sender<NetEvent>) {
+    let Ok(listener) = TcpListener::bind(&address) else {
         let _ = inbound.send(NetEvent::Disconnected);
         return;
     };
-    let writer_stream = stream;
-
-    let read_inbound = inbound.clone();
-    thread::spawn(move || {
-        let reader = BufReader::new(read_stream);
-        for line in reader.lines() {
-            let Ok(line) = line else {
-                break;
-            };
-
-            if line.trim().is_empty() {
-                continue;
-            }
-
-            let Ok(message) = serde_json::from_str::<NetMessage>(&line) else {
-                continue;
-            };
-            let _ = read_inbound.send(NetEvent::Message(message));
-        }
-        let _ = read_inbound.send(NetEvent::Disconnected);
-    });
-
-    let mut writer = writer_stream;
-    loop {
-        match outbound.recv() {
-            Ok(message) => {
-                let Ok(serialized) = serde_json::to_string(&message) else {
-                    continue;
-                };
-                if writer.write_all(serialized.as_bytes()).is_err() {
-                    break;
-                }
-                if writer.write_all(b"\n").is_err() {
-                    break;
-                }
-                if writer.flush().is_err() {
-                    break;
-                }
-            }
-            Err(_) => break,
-        }
+    if listener.set_nonblocking(true).is_err() {
+        let _ = inbound.send(NetEvent::Disconnected);
+        return;
     }
 
-    let _ = inbound.send(NetEvent::Disconnected);
+    let (socket_tx, socket_rx) = mpsc::channel::<SocketEvent>();
+    let mut peers: HashMap<PeerId, Sender<NetMessage>> = HashMap::new();
+    let mut next_peer_id: PeerId = 1;
+    let _ = inbound.send(NetEvent::Connected);
+
+    loop {
+        loop {
+            match listener.accept() {
+                Ok((stream, _)) => {
+                    let peer_id = next_peer_id;
+                    next_peer_id += 1;
+                    let sender = spawn_socket_endpoint(peer_id, stream, socket_tx.clone());
+                    peers.insert(peer_id, sender);
+                    let _ = inbound.send(NetEvent::PeerConnected(peer_id));
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => break,
+                Err(_) => {
+                    let _ = inbound.send(NetEvent::Disconnected);
+                    return;
+                }
+            }
+        }
+
+        loop {
+            match socket_rx.try_recv() {
+                Ok(SocketEvent::Message { peer_id, message }) => {
+                    let _ = inbound.send(NetEvent::Message {
+                        peer_id: Some(peer_id),
+                        message,
+                    });
+                }
+                Ok(SocketEvent::Disconnected(peer_id)) => {
+                    peers.remove(&peer_id);
+                    let _ = inbound.send(NetEvent::PeerDisconnected(peer_id));
+                }
+                Err(TryRecvError::Empty) => break,
+                Err(TryRecvError::Disconnected) => {
+                    let _ = inbound.send(NetEvent::Disconnected);
+                    return;
+                }
+            }
+        }
+
+        loop {
+            match outbound.try_recv() {
+                Ok(NetCommand::Broadcast(message)) => {
+                    broadcast_to_peers(&peers, None, &message);
+                }
+                Ok(NetCommand::BroadcastExcept {
+                    excluded_peer,
+                    message,
+                }) => {
+                    broadcast_to_peers(&peers, Some(excluded_peer), &message);
+                }
+                Ok(NetCommand::SendToPeer { peer_id, message }) => {
+                    if let Some(sender) = peers.get(&peer_id) {
+                        let _ = sender.send(message);
+                    }
+                }
+                Err(TryRecvError::Empty) => break,
+                Err(TryRecvError::Disconnected) => return,
+            }
+        }
+
+        thread::sleep(Duration::from_millis(10));
+    }
+}
+
+fn run_client_manager(address: String, outbound: Receiver<NetCommand>, inbound: Sender<NetEvent>) {
+    let Ok(stream) = TcpStream::connect(&address) else {
+        let _ = inbound.send(NetEvent::Disconnected);
+        return;
+    };
+
+    let (socket_tx, socket_rx) = mpsc::channel::<SocketEvent>();
+    let sender = spawn_socket_endpoint(0, stream, socket_tx);
+    let _ = inbound.send(NetEvent::Connected);
+
+    loop {
+        loop {
+            match socket_rx.try_recv() {
+                Ok(SocketEvent::Message { message, .. }) => {
+                    let _ = inbound.send(NetEvent::Message {
+                        peer_id: None,
+                        message,
+                    });
+                }
+                Ok(SocketEvent::Disconnected(_)) => {
+                    let _ = inbound.send(NetEvent::Disconnected);
+                    return;
+                }
+                Err(TryRecvError::Empty) => break,
+                Err(TryRecvError::Disconnected) => {
+                    let _ = inbound.send(NetEvent::Disconnected);
+                    return;
+                }
+            }
+        }
+
+        loop {
+            match outbound.try_recv() {
+                Ok(NetCommand::Broadcast(message))
+                | Ok(NetCommand::BroadcastExcept { message, .. })
+                | Ok(NetCommand::SendToPeer { message, .. }) => {
+                    if sender.send(message).is_err() {
+                        let _ = inbound.send(NetEvent::Disconnected);
+                        return;
+                    }
+                }
+                Err(TryRecvError::Empty) => break,
+                Err(TryRecvError::Disconnected) => return,
+            }
+        }
+
+        thread::sleep(Duration::from_millis(10));
+    }
+}
+
+fn spawn_socket_endpoint(
+    peer_id: PeerId,
+    stream: TcpStream,
+    inbound: Sender<SocketEvent>,
+) -> Sender<NetMessage> {
+    let (outbound_tx, outbound_rx) = mpsc::channel::<NetMessage>();
+
+    thread::spawn(move || {
+        let Ok(read_stream) = stream.try_clone() else {
+            let _ = inbound.send(SocketEvent::Disconnected(peer_id));
+            return;
+        };
+        let writer_stream = stream;
+
+        let read_inbound = inbound.clone();
+        thread::spawn(move || {
+            let reader = BufReader::new(read_stream);
+            for line in reader.lines() {
+                let Ok(line) = line else {
+                    break;
+                };
+
+                if line.trim().is_empty() {
+                    continue;
+                }
+
+                let Ok(message) = serde_json::from_str::<NetMessage>(&line) else {
+                    continue;
+                };
+                let _ = read_inbound.send(SocketEvent::Message { peer_id, message });
+            }
+            let _ = read_inbound.send(SocketEvent::Disconnected(peer_id));
+        });
+
+        let mut writer = writer_stream;
+        while let Ok(message) = outbound_rx.recv() {
+            let Ok(serialized) = serde_json::to_string(&message) else {
+                continue;
+            };
+            if writer.write_all(serialized.as_bytes()).is_err() {
+                break;
+            }
+            if writer.write_all(b"\n").is_err() {
+                break;
+            }
+            if writer.flush().is_err() {
+                break;
+            }
+        }
+
+        let _ = inbound.send(SocketEvent::Disconnected(peer_id));
+    });
+
+    outbound_tx
+}
+
+fn broadcast_to_peers(
+    peers: &HashMap<PeerId, Sender<NetMessage>>,
+    excluded_peer: Option<PeerId>,
+    message: &NetMessage,
+) {
+    for (peer_id, sender) in peers {
+        if Some(*peer_id) == excluded_peer {
+            continue;
+        }
+        let _ = sender.send(message.clone());
+    }
 }
 
 fn poll_network_events(
@@ -366,6 +643,8 @@ fn poll_network_events(
     };
     let Ok(incoming) = incoming.lock() else {
         runtime.connected = false;
+        runtime.connected_peers = 0;
+        runtime.peer_assignments.clear();
         return;
     };
     let mut events = Vec::new();
@@ -395,18 +674,52 @@ fn poll_network_events(
             }
             NetEvent::Disconnected => {
                 runtime.connected = false;
+                runtime.connected_peers = 0;
+                runtime.peer_assignments.clear();
                 runtime.start_sent = false;
+            }
+            NetEvent::PeerConnected(peer_id) => {
+                runtime.connected_peers += 1;
+                runtime.peer_assignments.insert(peer_id, None);
                 if matches!(net_config.mode, NetMode::Host) {
-                    lobby.client_slot = None;
+                    let peer_updates = auto_assign_available_slots(&mut runtime, &lobby);
+                    if let Some(outgoing) = &runtime.outgoing {
+                        for (peer_id, slot) in peer_updates {
+                            send_assigned_slot(outgoing, peer_id, slot);
+                        }
+                    }
+                    if let Some(outgoing) = &runtime.outgoing {
+                        send_lobby_sync(outgoing, &lobby);
+                    }
                 }
             }
-            NetEvent::Message(NetMessage::StartGame {
-                config,
-                client_player_index,
-            }) => {
+            NetEvent::PeerDisconnected(peer_id) => {
+                runtime.connected_peers = runtime.connected_peers.saturating_sub(1);
+                runtime.peer_assignments.remove(&peer_id);
+                runtime.start_sent = false;
+                if matches!(net_config.mode, NetMode::Host) {
+                    let peer_updates = auto_assign_available_slots(&mut runtime, &lobby);
+                    if let Some(outgoing) = &runtime.outgoing {
+                        for (peer_id, slot) in peer_updates {
+                            send_assigned_slot(outgoing, peer_id, slot);
+                        }
+                    }
+                    if let Some(outgoing) = &runtime.outgoing {
+                        send_lobby_sync(outgoing, &lobby);
+                    }
+                }
+            }
+            NetEvent::Message {
+                peer_id: _,
+                message:
+                    NetMessage::StartGame {
+                        config,
+                        local_player_index,
+                    },
+            } => {
                 if matches!(net_config.mode, NetMode::Client) {
                     *game_config = config;
-                    net_config.local_player_index = client_player_index;
+                    net_config.local_player_index = local_player_index.unwrap_or(usize::MAX);
                     if *phase.get() == AppPhase::InGame {
                         rematch_events.write(StartRematch);
                     } else {
@@ -414,56 +727,131 @@ fn poll_network_events(
                     }
                 }
             }
-            NetEvent::Message(NetMessage::LobbySync {
-                config,
-                host_slot,
-                client_slot,
-            }) => {
+            NetEvent::Message {
+                peer_id: _,
+                message:
+                    NetMessage::LobbySync {
+                        config,
+                        host_slot,
+                        remote_slots,
+                    },
+            } => {
                 if matches!(net_config.mode, NetMode::Client) {
                     lobby.config = config;
                     lobby.host_slot = host_slot;
-                    lobby.client_slot = client_slot;
+                    lobby.remote_slots = remote_slots;
                     normalize_lobby(&mut lobby);
                 }
             }
-            NetEvent::Message(NetMessage::LobbySelectSlot(slot)) => {
+            NetEvent::Message {
+                peer_id: _,
+                message: NetMessage::AssignedSlot(slot),
+            } => {
+                if matches!(net_config.mode, NetMode::Client) {
+                    net_config.local_player_index = slot.unwrap_or(usize::MAX);
+                }
+            }
+            NetEvent::Message {
+                peer_id: Some(peer_id),
+                message: NetMessage::LobbySelectSlot(slot),
+            } => {
                 if matches!(net_config.mode, NetMode::Host) {
-                    lobby.client_slot = slot;
-                    normalize_lobby(&mut lobby);
+                    let requested = sanitize_slot(slot, lobby.config.player_count)
+                        .filter(|value| lobby.remote_slots.contains(value));
+                    let claimed_elsewhere =
+                        runtime
+                            .peer_assignments
+                            .iter()
+                            .any(|(other_peer_id, other_slot)| {
+                                *other_peer_id != peer_id && *other_slot == requested
+                            });
+                    let assigned = if claimed_elsewhere { None } else { requested };
+                    runtime.peer_assignments.insert(peer_id, assigned);
+                    let peer_updates = auto_assign_available_slots(&mut runtime, &lobby);
                     if let Some(outgoing) = &runtime.outgoing {
+                        send_assigned_slot(outgoing, peer_id, assigned);
+                        for (peer_id, slot) in peer_updates {
+                            send_assigned_slot(outgoing, peer_id, slot);
+                        }
                         send_lobby_sync(outgoing, &lobby);
                     }
                 }
             }
-            NetEvent::Message(NetMessage::RematchRequest) => {
+            NetEvent::Message {
+                peer_id: Some(peer_id),
+                message: NetMessage::RematchRequest,
+            } => {
                 if matches!(net_config.mode, NetMode::Host)
                     && *phase.get() == AppPhase::InGame
                     && runtime.connected
                 {
                     if let Some(outgoing) = &runtime.outgoing {
-                        let _ = outgoing.send(NetMessage::StartGame {
-                            config: *game_config,
-                            client_player_index: lobby.client_slot.unwrap_or(usize::MAX),
-                        });
+                        send_start_messages(outgoing, &runtime, &game_config);
                     }
+                    runtime.start_sent = true;
                     rematch_events.write(StartRematch);
+                } else {
+                    let _ = peer_id;
                 }
             }
-            NetEvent::Message(NetMessage::Action(action)) => {
+            NetEvent::Message {
+                peer_id: Some(peer_id),
+                message: NetMessage::Action(action),
+            } => {
+                if matches!(net_config.mode, NetMode::Host) {
+                    if let Some(outgoing) = &runtime.outgoing {
+                        let _ = outgoing.send(NetCommand::BroadcastExcept {
+                            excluded_peer: peer_id,
+                            message: NetMessage::Action(action),
+                        });
+                    }
+                    action_requests.write(GameActionRequest {
+                        source: ActionSource::Remote,
+                        action,
+                    });
+                }
+            }
+            NetEvent::Message {
+                peer_id: None,
+                message: NetMessage::RematchRequest,
+            } => {}
+            NetEvent::Message {
+                peer_id: None,
+                message: NetMessage::Action(action),
+            } => {
                 action_requests.write(GameActionRequest {
                     source: ActionSource::Remote,
                     action,
                 });
             }
+            NetEvent::Message {
+                peer_id: None,
+                message: NetMessage::LobbySelectSlot(_),
+            } => {}
         }
+    }
+}
+
+fn send_start_messages(
+    outgoing: &Sender<NetCommand>,
+    runtime: &NetRuntime,
+    game_config: &GameConfig,
+) {
+    for (peer_id, slot) in &runtime.peer_assignments {
+        let _ = outgoing.send(NetCommand::SendToPeer {
+            peer_id: *peer_id,
+            message: NetMessage::StartGame {
+                config: *game_config,
+                local_player_index: *slot,
+            },
+        });
     }
 }
 
 fn handle_rematch_requests(
     net_config: Res<NetConfig>,
-    runtime: Res<NetRuntime>,
+    mut runtime: ResMut<NetRuntime>,
     game_config: Res<GameConfig>,
-    lobby: Res<NetLobbyState>,
     mut requests: EventReader<RematchRequested>,
     mut rematch_events: EventWriter<StartRematch>,
 ) {
@@ -484,11 +872,9 @@ fn handle_rematch_requests(
                 return;
             }
             if let Some(outgoing) = &runtime.outgoing {
-                let _ = outgoing.send(NetMessage::StartGame {
-                    config: *game_config,
-                    client_player_index: lobby.client_slot.unwrap_or(usize::MAX),
-                });
+                send_start_messages(outgoing, &runtime, &game_config);
             }
+            runtime.start_sent = true;
             rematch_events.write(StartRematch);
         }
         NetMode::Client => {
@@ -496,7 +882,7 @@ fn handle_rematch_requests(
                 return;
             }
             if let Some(outgoing) = &runtime.outgoing {
-                let _ = outgoing.send(NetMessage::RematchRequest);
+                let _ = outgoing.send(NetCommand::Broadcast(NetMessage::RematchRequest));
             }
         }
     }
@@ -520,7 +906,7 @@ fn send_local_actions_over_network(
             continue;
         }
 
-        let _ = outgoing.send(NetMessage::Action(applied.action));
+        let _ = outgoing.send(NetCommand::Broadcast(NetMessage::Action(applied.action)));
     }
 }
 
@@ -529,7 +915,6 @@ fn send_start_game_from_host_on_enter(
     mut runtime: ResMut<NetRuntime>,
     phase: Res<State<AppPhase>>,
     game_config: Res<GameConfig>,
-    lobby: Res<NetLobbyState>,
 ) {
     if *phase.get() != AppPhase::InGame {
         runtime.start_sent = false;
@@ -541,10 +926,7 @@ fn send_start_game_from_host_on_enter(
     }
 
     if let Some(outgoing) = &runtime.outgoing {
-        let _ = outgoing.send(NetMessage::StartGame {
-            config: *game_config,
-            client_player_index: lobby.client_slot.unwrap_or(usize::MAX),
-        });
+        send_start_messages(outgoing, &runtime, &game_config);
         runtime.start_sent = true;
     }
 }

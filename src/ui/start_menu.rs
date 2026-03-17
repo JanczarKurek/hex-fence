@@ -64,7 +64,9 @@ pub(super) fn setup_start_menu(
     menu.network_local_slot = if matches!(net_config.mode, NetMode::Host) {
         net_lobby.host_slot
     } else {
-        net_lobby.client_slot
+        Some(net_config.local_player_index)
+            .filter(|slot| *slot < net_lobby.config.player_count)
+            .filter(|slot| net_lobby.remote_slots.contains(slot))
     };
     menu.address_focused = false;
     menu.show_authors_popup = false;
@@ -284,7 +286,9 @@ pub(super) fn setup_start_menu(
                                                         ..default()
                                                     },
                                                     BorderColor(Color::srgba(0.9, 0.9, 0.95, 0.35)),
-                                                    BackgroundColor(Color::srgba(0.06, 0.07, 0.1, 0.98)),
+                                                    BackgroundColor(Color::srgba(
+                                                        0.06, 0.07, 0.1, 0.98,
+                                                    )),
                                                     ZIndex(20),
                                                 ))
                                                 .with_children(|menu| {
@@ -299,7 +303,9 @@ pub(super) fn setup_start_menu(
                                                             justify_content:
                                                                 JustifyContent::FlexStart,
                                                             align_items: AlignItems::Center,
-                                                            padding: UiRect::horizontal(Val::Px(8.0)),
+                                                            padding: UiRect::horizontal(Val::Px(
+                                                                8.0,
+                                                            )),
                                                             border: UiRect::all(Val::Px(1.0)),
                                                             ..default()
                                                         },
@@ -319,7 +325,9 @@ pub(super) fn setup_start_menu(
                                                             justify_content:
                                                                 JustifyContent::FlexStart,
                                                             align_items: AlignItems::Center,
-                                                            padding: UiRect::horizontal(Val::Px(8.0)),
+                                                            padding: UiRect::horizontal(Val::Px(
+                                                                8.0,
+                                                            )),
                                                             border: UiRect::all(Val::Px(1.0)),
                                                             ..default()
                                                         },
@@ -339,7 +347,9 @@ pub(super) fn setup_start_menu(
                                                             justify_content:
                                                                 JustifyContent::FlexStart,
                                                             align_items: AlignItems::Center,
-                                                            padding: UiRect::horizontal(Val::Px(8.0)),
+                                                            padding: UiRect::horizontal(Val::Px(
+                                                                8.0,
+                                                            )),
                                                             border: UiRect::all(Val::Px(1.0)),
                                                             ..default()
                                                         },
@@ -359,7 +369,9 @@ pub(super) fn setup_start_menu(
                                                             justify_content:
                                                                 JustifyContent::FlexStart,
                                                             align_items: AlignItems::Center,
-                                                            padding: UiRect::horizontal(Val::Px(8.0)),
+                                                            padding: UiRect::horizontal(Val::Px(
+                                                                8.0,
+                                                            )),
                                                             border: UiRect::all(Val::Px(1.0)),
                                                             ..default()
                                                         },
@@ -1257,9 +1269,10 @@ pub(super) fn handle_menu_option_buttons(
     }
 
     let mut lobby_dirty = false;
-    let mut client_slot_for_sync = net_lobby.client_slot;
+    let mut remote_slots_for_sync = net_lobby.remote_slots.clone();
+    let selected_net_mode = configured_network_mode(&menu, &net_config);
     let can_edit_full_lobby = menu.game_mode == StartGameMode::Local
-        || (menu.game_mode == StartGameMode::Network && matches!(net_config.mode, NetMode::Host));
+        || (menu.game_mode == StartGameMode::Network && matches!(selected_net_mode, NetMode::Host));
 
     for (interaction, button) in &mut board_buttons {
         if *interaction == Interaction::Pressed && can_edit_full_lobby {
@@ -1291,13 +1304,11 @@ pub(super) fn handle_menu_option_buttons(
                 PlayerControl::RandomAi
             };
             menu.player_controls[button.player_index] = toggled;
-            if matches!(net_config.mode, NetMode::Host) && toggled.is_ai() {
+            if matches!(selected_net_mode, NetMode::Host) && toggled.is_ai() {
                 if menu.network_local_slot == Some(button.player_index) {
                     menu.network_local_slot = None;
                 }
-                if client_slot_for_sync == Some(button.player_index) {
-                    client_slot_for_sync = None;
-                }
+                remote_slots_for_sync.retain(|slot| *slot != button.player_index);
             }
             menu.open_player_detail_dropdown = None;
             lobby_dirty = true;
@@ -1348,13 +1359,11 @@ pub(super) fn handle_menu_option_buttons(
         }
 
         menu.open_player_detail_dropdown = None;
-        match (net_config.mode, button.option) {
+        match (selected_net_mode, button.option) {
             (NetMode::Host, PlayerDetailOption::Host) => {
                 menu.player_controls[button.player_index] = PlayerControl::Human;
                 menu.network_local_slot = Some(button.player_index);
-                if client_slot_for_sync == Some(button.player_index) {
-                    client_slot_for_sync = None;
-                }
+                remote_slots_for_sync.retain(|slot| *slot != button.player_index);
                 lobby_dirty = true;
             }
             (NetMode::Host, PlayerDetailOption::Client) => {
@@ -1362,7 +1371,11 @@ pub(super) fn handle_menu_option_buttons(
                 if menu.network_local_slot == Some(button.player_index) {
                     menu.network_local_slot = None;
                 }
-                client_slot_for_sync = Some(button.player_index);
+                if remote_slots_for_sync.contains(&button.player_index) {
+                    remote_slots_for_sync.retain(|slot| *slot != button.player_index);
+                } else {
+                    remote_slots_for_sync.push(button.player_index);
+                }
                 lobby_dirty = true;
             }
             (NetMode::Client, PlayerDetailOption::Client) => {
@@ -1382,7 +1395,7 @@ pub(super) fn handle_menu_option_buttons(
 
     if lobby_dirty
         && matches!(menu.game_mode, StartGameMode::Network)
-        && matches!(net_config.mode, NetMode::Host)
+        && matches!(selected_net_mode, NetMode::Host)
     {
         let mut synced = GameConfig::default();
         synced.board_radius = menu.board_radius;
@@ -1394,7 +1407,7 @@ pub(super) fn handle_menu_option_buttons(
         net_ui_commands.write(NetUiCommand::HostSyncLobby {
             config: synced,
             host_slot: menu.network_local_slot,
-            client_slot: client_slot_for_sync,
+            remote_slots: remote_slots_for_sync,
         });
     }
 }
@@ -1402,6 +1415,7 @@ pub(super) fn handle_menu_option_buttons(
 pub(super) fn handle_network_connect_button(
     mut menu: ResMut<MenuSelection>,
     mut net_config: ResMut<NetConfig>,
+    mut net_runtime: ResMut<NetRuntime>,
     net_lobby: Res<NetLobbyState>,
     mut net_ui_commands: EventWriter<NetUiCommand>,
     mut app_settings: ResMut<AppSettings>,
@@ -1425,6 +1439,7 @@ pub(super) fn handle_network_connect_button(
             } else {
                 trimmed.to_string()
             };
+            net_runtime.request_reconnect();
             save_last_network_settings(&mut app_settings, menu.net_mode, &net_config.address);
             if matches!(menu.net_mode, NetMode::Host) {
                 menu.network_local_slot = Some(0);
@@ -1438,7 +1453,7 @@ pub(super) fn handle_network_connect_button(
                 net_ui_commands.write(NetUiCommand::HostSyncLobby {
                     config: synced,
                     host_slot: menu.network_local_slot,
-                    client_slot: net_lobby.client_slot,
+                    remote_slots: net_lobby.remote_slots.clone(),
                 });
             }
         }
@@ -1487,7 +1502,7 @@ pub(super) fn sync_network_lobby_screen(
         && menu.game_mode == StartGameMode::Network
         && net_runtime.connected
     {
-        menu.sync_from_network_lobby(net_config.mode, &net_lobby);
+        menu.sync_from_network_lobby(net_config.mode, net_config.local_player_index, &net_lobby);
     }
 }
 
@@ -1833,6 +1848,8 @@ pub(super) fn sync_menu_button_visuals(
                 menu.game_mode,
                 menu.net_mode,
                 net_runtime.connected,
+                net_runtime.connected_peers,
+                net_config.local_player_index,
                 &net_lobby,
             ));
         } else if start_text.is_some() {
@@ -1916,6 +1933,7 @@ pub(super) fn handle_start_game_button(
     menu: Res<MenuSelection>,
     mut net_config: ResMut<NetConfig>,
     mut game_config: ResMut<GameConfig>,
+    net_runtime: Res<NetRuntime>,
     net_lobby: Res<NetLobbyState>,
     mut app_settings: ResMut<AppSettings>,
     mut interactions: Query<
@@ -1929,7 +1947,7 @@ pub(super) fn handle_start_game_button(
     }
 
     for (interaction, mut color) in &mut interactions {
-        if menu.game_mode == StartGameMode::Network && matches!(net_config.mode, NetMode::Client) {
+        if menu.game_mode == StartGameMode::Network && matches!(menu.net_mode, NetMode::Client) {
             *color = NORMAL_BUTTON.into();
             continue;
         }
@@ -1974,12 +1992,14 @@ pub(super) fn handle_start_game_button(
                     }
                 } else {
                     let host_slot = menu.network_local_slot.or(net_lobby.host_slot).unwrap_or(0);
-                    let client_slot = net_lobby.client_slot;
-                    if host_slot >= menu.player_count {
+                    if host_slot >= menu.player_count
+                        || !network_lobby_ready_to_start(&menu, &net_lobby, &net_runtime)
+                    {
                         *color = NORMAL_BUTTON.into();
                         continue;
                     }
-                    *game_config = build_network_game_config(&menu, host_slot, client_slot);
+                    *game_config =
+                        build_network_game_config(&menu, host_slot, &net_lobby.remote_slots);
                     net_config.local_player_index = host_slot;
                 }
                 next_phase.set(AppPhase::InGame);
@@ -2003,6 +2023,8 @@ fn connected_players_label(
     game_mode: StartGameMode,
     net_mode: NetMode,
     connected: bool,
+    connected_peers: usize,
+    local_player_index: usize,
     net_lobby: &NetLobbyState,
 ) -> String {
     if game_mode != StartGameMode::Network {
@@ -2013,21 +2035,20 @@ fn connected_players_label(
         .host_slot
         .map(|slot| format!("P{}", slot + 1))
         .unwrap_or_else(|| "none".to_string());
-    let client_slot = net_lobby
-        .client_slot
+    let client_slots = format_slot_list(&net_lobby.remote_slots);
+    let your_slot = Some(local_player_index)
+        .filter(|slot| *slot < net_lobby.config.player_count)
+        .filter(|slot| net_lobby.remote_slots.contains(slot))
         .map(|slot| format!("P{}", slot + 1))
         .unwrap_or_else(|| "none".to_string());
 
     match net_mode {
         NetMode::Host => format!(
-            "Connection: {}\nHost slot: {}\nClient slot: {}",
-            if connected {
-                "Client connected"
-            } else {
-                "Waiting for client"
-            },
+            "Connection: {}\nHost slot: {}\nRemote slots: {}\nConnected clients: {}",
+            if connected { "Listening" } else { "Offline" },
             host_slot,
-            client_slot
+            client_slots,
+            connected_peers
         ),
         NetMode::Client => format!(
             "Connection: {}\nHost slot: {}\nYour slot: {}",
@@ -2037,7 +2058,7 @@ fn connected_players_label(
                 "Connecting..."
             },
             host_slot,
-            client_slot
+            your_slot
         ),
         NetMode::Local => "Choose Host or Client.".to_string(),
     }
@@ -2098,7 +2119,7 @@ fn player_detail_dropdown_enabled(
     if menu.player_controls[player_index].is_ai() {
         return menu.game_mode == StartGameMode::Local
             || (menu.game_mode == StartGameMode::Network
-                && matches!(net_config.mode, NetMode::Host));
+                && matches!(configured_network_mode(menu, net_config), NetMode::Host));
     }
     menu.game_mode == StartGameMode::Network
 }
@@ -2116,7 +2137,7 @@ fn player_detail_option_enabled(
     if menu.player_controls[player_index].is_ai() {
         if !(menu.game_mode == StartGameMode::Local
             || (menu.game_mode == StartGameMode::Network
-                && matches!(net_config.mode, NetMode::Host)))
+                && matches!(configured_network_mode(menu, net_config), NetMode::Host)))
         {
             return false;
         }
@@ -2130,7 +2151,7 @@ fn player_detail_option_enabled(
         return false;
     }
 
-    match net_config.mode {
+    match configured_network_mode(menu, net_config) {
         NetMode::Host => matches!(
             option,
             PlayerDetailOption::Host | PlayerDetailOption::Client
@@ -2149,7 +2170,7 @@ fn network_slot_owner_for_player(
     if host_slot == Some(player_index) {
         return NetworkSlotOwner::Host;
     }
-    if net_lobby.client_slot == Some(player_index) {
+    if net_lobby.remote_slots.contains(&player_index) {
         return NetworkSlotOwner::Client;
     }
     NetworkSlotOwner::Ai
@@ -2175,7 +2196,7 @@ fn player_color_button_color(
 fn build_network_game_config(
     menu: &MenuSelection,
     host_slot: usize,
-    client_slot: Option<usize>,
+    remote_slots: &[usize],
 ) -> GameConfig {
     let mut config = GameConfig::default();
     config.board_radius = menu.board_radius;
@@ -2186,7 +2207,7 @@ fn build_network_game_config(
     config.player_colors = menu.player_colors;
 
     for player_index in 0..config.player_count {
-        if player_index == host_slot || client_slot == Some(player_index) {
+        if player_index == host_slot || remote_slots.contains(&player_index) {
             config.player_controls[player_index] = PlayerControl::Human;
         } else {
             config.player_controls[player_index] = menu.player_controls[player_index];
@@ -2194,6 +2215,46 @@ fn build_network_game_config(
     }
 
     config
+}
+
+fn configured_network_mode(menu: &MenuSelection, net_config: &NetConfig) -> NetMode {
+    if menu.game_mode == StartGameMode::Network {
+        menu.net_mode
+    } else {
+        net_config.mode
+    }
+}
+
+fn format_slot_list(slots: &[usize]) -> String {
+    if slots.is_empty() {
+        return "none".to_string();
+    }
+
+    slots
+        .iter()
+        .map(|slot| format!("P{}", slot + 1))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn network_lobby_ready_to_start(
+    menu: &MenuSelection,
+    net_lobby: &NetLobbyState,
+    net_runtime: &NetRuntime,
+) -> bool {
+    if menu.game_mode != StartGameMode::Network || !matches!(menu.net_mode, NetMode::Host) {
+        return true;
+    }
+
+    if !net_runtime.connected {
+        return false;
+    }
+
+    let claimed_slots = net_runtime.claimed_remote_slots();
+    net_lobby
+        .remote_slots
+        .iter()
+        .all(|slot| claimed_slots.contains(slot))
 }
 
 fn is_valid_address_char(ch: char) -> bool {

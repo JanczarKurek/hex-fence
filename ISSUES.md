@@ -7,7 +7,6 @@
 ## Dev
 - Make as much stuff loadable from files instead of compiled:
     - Configuration of the number of fences / other values in the game rules
-- Extend network transport from single host+client connection to true multi-client sessions.
 
 ## Graphics
 - Fences have empty spots on the joints
@@ -21,6 +20,7 @@
 - Frame meter should be of use
 
 ## Done recently
+- Extended network transport from a single host/client pair to host-relayed multi-client sessions.
 - Added local AI players support with a basic random-legal-move bot.
 - Upgraded AI with path-based heuristics and defensive fence placement.
 - Added selectable AI type (Heuristic / Alpha-Beta) in game setup.

@@ -113,7 +113,7 @@ impl NetworkSettings {
             } else {
                 trimmed.chars().take(80).collect()
             },
-            local_player_index: self.local_player_index.min(1),
+            local_player_index: self.local_player_index.min(5),
         }
     }
 }

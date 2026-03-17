@@ -342,7 +342,12 @@ impl SoundSliderKind {
 }
 
 impl MenuSelection {
-    pub(super) fn sync_from_network_lobby(&mut self, net_mode: NetMode, net_lobby: &NetLobbyState) {
+    pub(super) fn sync_from_network_lobby(
+        &mut self,
+        net_mode: NetMode,
+        local_player_index: usize,
+        net_lobby: &NetLobbyState,
+    ) {
         self.board_radius = net_lobby.config.board_radius;
         self.player_count = net_lobby.config.player_count;
         self.player_controls = net_lobby.config.player_controls;
@@ -352,7 +357,9 @@ impl MenuSelection {
         self.network_local_slot = if matches!(net_mode, NetMode::Host) {
             net_lobby.host_slot
         } else {
-            net_lobby.client_slot
+            Some(local_player_index)
+                .filter(|slot| *slot < net_lobby.config.player_count)
+                .filter(|slot| net_lobby.remote_slots.contains(slot))
         };
     }
 }
