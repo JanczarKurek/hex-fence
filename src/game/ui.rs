@@ -7,9 +7,13 @@ use super::components::{
     PlayerPanelToggleButton, PlayerPanelToggleText, PlayerPanelUiState, TurnStatusText,
 };
 use super::fence::{FencePlacementState, FenceShape};
-use super::state::TurnState;
+use super::state::GameState;
 
-pub fn setup_turn_indicator(mut commands: Commands, turn_state: Res<TurnState>) {
+pub fn setup_turn_indicator(
+    mut commands: Commands,
+    turn_state: Res<GameState>,
+    game_config: Res<GameConfig>,
+) {
     commands.spawn((
         InGameHudUi,
         TurnStatusText,
@@ -117,7 +121,7 @@ pub fn setup_turn_indicator(mut commands: Commands, turn_state: Res<TurnState>) 
                                 },
                                 Text::new(format!("  Player {}", player.index + 1)),
                                 TextFont::from_font_size(18.0),
-                                TextColor(player.pawn_color),
+                                TextColor(game_config.pawn_color(player.index)),
                             ));
                         });
                     }
@@ -200,7 +204,7 @@ pub fn update_hovered_goal_preview(
 
 pub fn update_turn_indicator(
     game_config: Res<GameConfig>,
-    turn_state: Res<TurnState>,
+    turn_state: Res<GameState>,
     fence_placement: Res<FencePlacementState>,
     mut ui_queries: ParamSet<(
         Query<(&mut Text, &mut TextColor), With<TurnStatusText>>,
@@ -219,7 +223,7 @@ pub fn update_turn_indicator(
 
     if let Some(winner) = turn_state.winner {
         *text = Text::new(format!("Winner: Player {}", winner + 1));
-        *text_color = TextColor(turn_state.players[winner].pawn_color);
+        *text_color = TextColor(game_config.pawn_color(winner));
     } else {
         let fences_left = turn_state.fences_left[turn_state.current_player];
         let current_control = game_config.player_control(turn_state.current_player);
@@ -244,7 +248,7 @@ pub fn update_turn_indicator(
             "Current player: {} | Mode: {} | Fences left: {}",
             current_player_label, mode, fences_left
         ));
-        *text_color = TextColor(turn_state.players[turn_state.current_player].pawn_color);
+        *text_color = TextColor(game_config.pawn_color(turn_state.current_player));
     }
 
     let mut player_labels = ui_queries.p1();
@@ -280,12 +284,12 @@ pub fn update_turn_indicator(
             fences_left,
             winner_marker
         ));
-        *row_color = TextColor(turn_state.players[player_index].pawn_color);
+        *row_color = TextColor(game_config.pawn_color(player_index));
     }
 
     let mut player_rows = ui_queries.p2();
     for (entry, interaction, mut row_bg) in &mut player_rows {
-        let player_color = turn_state.players[entry.player_index].pawn_color.to_srgba();
+        let player_color = game_config.pawn_color(entry.player_index).to_srgba();
         let highlight = Color::srgba(
             player_color.red,
             player_color.green,

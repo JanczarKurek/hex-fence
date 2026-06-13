@@ -1,10 +1,13 @@
 use bevy::prelude::*;
 
+use crate::app_state::GameConfig;
+use crate::hex_grid::HexRender;
+
 use super::audio::GameSoundEvent;
 use super::components::Pawn;
 use super::fence;
 use super::selection::PawnSelection;
-use super::state::{ActionOutcome, AppliedAction, GameAction, TurnState};
+use super::state::{ActionOutcome, AppliedAction, GameAction, GameState};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ActionSource {
@@ -31,7 +34,8 @@ pub fn apply_game_action_requests(
     mut requests: EventReader<GameActionRequest>,
     mut applied_events: EventWriter<GameActionApplied>,
     mut sound_events: EventWriter<GameSoundEvent>,
-    mut turn_state: ResMut<TurnState>,
+    mut turn_state: ResMut<GameState>,
+    game_config: Res<GameConfig>,
     mut selection: ResMut<PawnSelection>,
     mut pawn_query: Query<(&Pawn, &mut Transform)>,
 ) {
@@ -59,7 +63,7 @@ pub fn apply_game_action_requests(
                 }
             }
             AppliedAction::FencePlaced { player, edges } => {
-                let color = turn_state.players[player].pawn_color;
+                let color = game_config.pawn_color(player);
                 fence::spawn_fence_segments(
                     &mut commands,
                     &mut meshes,

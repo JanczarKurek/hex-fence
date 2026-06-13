@@ -14,8 +14,8 @@ use super::common;
 use super::components::{
     AiCooldownButton, AuthorsPopup, BackToModeButton, BoardSizeButton, ConnectedPlayersText,
     ControlBindingButton, ControlBindingKind, ControlBindingValueText, LobbyPlayerListScroll,
-    LocalOnly, MainMenuAction, MainMenuActionButton, MenuMainPanel, MenuScreen,
-    MenuScreenModeSelect, MenuScreenNetworkLobby, MenuScreenSetup, MenuSelection,
+    LocalOnly, MainMenuAction, MainMenuActionButton, MenuMainPanel, MenuMainPanelScrollArea,
+    MenuScreen, MenuScreenModeSelect, MenuScreenNetworkLobby, MenuScreenSetup, MenuSelection,
     MenuSettingsCloseButton, MenuSettingsPopup, NetworkAddressInputButton,
     NetworkAddressInputField, NetworkConnectButton, NetworkLobbyClientOnly, NetworkLobbyHostOnly,
     NetworkModeButton, NetworkOnly, NetworkSlotButton, NetworkSlotOwner, PlayerAiOnly,
@@ -83,6 +83,7 @@ pub(super) fn setup_start_menu(
             Node {
                 width: Val::Percent(100.0),
                 height: Val::Percent(100.0),
+                padding: UiRect::all(Val::Px(16.0)),
                 justify_content: JustifyContent::Center,
                 align_items: AlignItems::Center,
                 ..default()
@@ -90,14 +91,19 @@ pub(super) fn setup_start_menu(
         ))
         .with_children(|root| {
             root.spawn((
+                MenuMainPanelScrollArea,
                 MenuMainPanel,
+                ScrollPosition::default(),
+                RelativeCursorPosition::default(),
                 Node {
                     width: Val::Px(480.0),
                     max_width: Val::Percent(92.0),
+                    max_height: Val::Percent(100.0),
                     padding: UiRect::all(Val::Px(24.0)),
                     border: UiRect::all(Val::Px(2.0)),
                     row_gap: Val::Px(18.0),
                     flex_direction: FlexDirection::Column,
+                    overflow: Overflow::scroll_y(),
                     ..default()
                 },
                 BorderColor(PANEL_BORDER),
@@ -378,6 +384,28 @@ pub(super) fn setup_start_menu(
                                                     ))
                                                     .with_children(|button| {
                                                         button.spawn(white_text("AlphaBeta", 12.0));
+                                                    });
+                                                    menu.spawn(button_bundle(
+                                                        PlayerDetailOptionButton {
+                                                            player_index,
+                                                            option: PlayerDetailOption::Neural,
+                                                        },
+                                                        Node {
+                                                            width: Val::Percent(100.0),
+                                                            height: Val::Px(26.0),
+                                                            justify_content:
+                                                                JustifyContent::FlexStart,
+                                                            align_items: AlignItems::Center,
+                                                            padding: UiRect::horizontal(Val::Px(
+                                                                8.0,
+                                                            )),
+                                                            border: UiRect::all(Val::Px(1.0)),
+                                                            ..default()
+                                                        },
+                                                        NORMAL_BUTTON,
+                                                    ))
+                                                    .with_children(|button| {
+                                                        button.spawn(white_text("Neural", 12.0));
                                                     });
                                                 });
 
@@ -715,7 +743,10 @@ pub(super) fn handle_lobby_player_list_scroll(
     menu: Res<MenuSelection>,
     keys: Res<ButtonInput<KeyCode>>,
     mut wheel_events: EventReader<MouseWheel>,
-    mut lists: Query<(&RelativeCursorPosition, &mut ScrollPosition), With<LobbyPlayerListScroll>>,
+    mut lists: Query<
+        (&RelativeCursorPosition, &mut ScrollPosition, &Node),
+        With<LobbyPlayerListScroll>,
+    >,
 ) {
     if menu.screen != MenuScreen::Setup
         || (menu.game_mode != StartGameMode::Local
@@ -748,8 +779,8 @@ pub(super) fn handle_lobby_player_list_scroll(
         return;
     }
 
-    for (cursor, mut scroll) in &mut lists {
-        let wheel_scroll = if cursor.normalized.is_some() {
+    for (cursor, mut scroll, node) in &mut lists {
+        let wheel_scroll = if node.display != Display::None && cursor.normalized.is_some() {
             -wheel_delta * 36.0
         } else {
             0.0
@@ -760,6 +791,46 @@ pub(super) fn handle_lobby_player_list_scroll(
         }
 
         scroll.offset_y = (scroll.offset_y + total_delta).max(0.0);
+    }
+}
+
+pub(super) fn handle_main_menu_panel_scroll(
+    menu: Res<MenuSelection>,
+    mut wheel_events: EventReader<MouseWheel>,
+    lists: Query<(&RelativeCursorPosition, &Node), With<LobbyPlayerListScroll>>,
+    mut panels: Query<
+        (&RelativeCursorPosition, &mut ScrollPosition, &Node),
+        With<MenuMainPanelScrollArea>,
+    >,
+) {
+    if menu.game_mode != StartGameMode::Network
+        || (menu.screen != MenuScreen::Setup && menu.screen != MenuScreen::NetworkLobby)
+    {
+        return;
+    }
+
+    let mut wheel_delta = 0.0;
+    for event in wheel_events.read() {
+        wheel_delta += event.y;
+    }
+
+    if wheel_delta.abs() <= f32::EPSILON {
+        return;
+    }
+
+    let inner_list_hovered = lists
+        .iter()
+        .any(|(cursor, node)| node.display != Display::None && cursor.normalized.is_some());
+    if inner_list_hovered {
+        return;
+    }
+
+    for (cursor, mut scroll, node) in &mut panels {
+        if node.display == Display::None || cursor.normalized.is_none() {
+            continue;
+        }
+
+        scroll.offset_y = (scroll.offset_y - wheel_delta * 36.0).max(0.0);
     }
 }
 
@@ -1157,6 +1228,10 @@ pub(super) fn handle_menu_option_buttons(
             }
             (_, PlayerDetailOption::AlphaBeta) if can_edit_full_lobby => {
                 menu.player_ai_strategies[button.player_index] = AiStrategy::AlphaBeta;
+                lobby_dirty = true;
+            }
+            (_, PlayerDetailOption::Neural) if can_edit_full_lobby => {
+                menu.player_ai_strategies[button.player_index] = AiStrategy::Neural;
                 lobby_dirty = true;
             }
             _ => {}
@@ -1678,6 +1753,7 @@ fn player_detail_label(
         match menu.player_ai_strategies[player_index] {
             AiStrategy::Heuristic => "Heuristic",
             AiStrategy::AlphaBeta => "AlphaBeta",
+            AiStrategy::Neural => "Neural",
         }
     } else if menu.game_mode == StartGameMode::Network {
         match network_slot_owner_for_player(player_index, menu, net_lobby) {
@@ -1699,6 +1775,7 @@ fn selected_player_detail_option(
         return Some(match menu.player_ai_strategies[player_index] {
             AiStrategy::Heuristic => PlayerDetailOption::Heuristic,
             AiStrategy::AlphaBeta => PlayerDetailOption::AlphaBeta,
+            AiStrategy::Neural => PlayerDetailOption::Neural,
         });
     }
     if menu.game_mode == StartGameMode::Network {

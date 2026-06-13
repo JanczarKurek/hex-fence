@@ -1,0 +1,21 @@
+[package]
+name = "giereczka-selfplay"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "selfplay"
+path = "src/main.rs"
+
+[[bin]]
+name = "contract"
+path = "src/bin/contract.rs"
+
+[[bin]]
+name = "ort_check"
+path = "src/bin/ort_check.rs"
+
+[dependencies]
+giereczka-core = { path = "../core", features = ["ort"] }
+safetensors = "0.4"
+serde_json = "1.0"

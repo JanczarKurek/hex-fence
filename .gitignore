@@ -1,2 +1,8 @@
 target/
 settings.toml
+
+# Self-play / training artifacts
+data/
+models/
+runs/
+__pycache__/

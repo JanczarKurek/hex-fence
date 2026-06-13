@@ -1,0 +1,12 @@
+[package]
+name = "giereczka-eval"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "eval"
+path = "src/main.rs"
+
+[dependencies]
+giereczka-core = { path = "../core", features = ["ort"] }
+serde_json = "1.0"

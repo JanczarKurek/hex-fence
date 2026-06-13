@@ -24,6 +24,7 @@ impl Plugin for UiPlugin {
                     start_menu::handle_back_to_mode_button,
                     start_menu::handle_menu_option_buttons,
                     start_menu::handle_lobby_player_list_scroll,
+                    start_menu::handle_main_menu_panel_scroll,
                     start_menu::handle_network_connect_button,
                     start_menu::sync_network_lobby_screen,
                     start_menu::handle_network_address_focus,

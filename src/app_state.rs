@@ -53,6 +53,9 @@ impl PlayerControl {
 pub enum AiStrategy {
     Heuristic,
     AlphaBeta,
+    /// Self-play-trained neural network (loaded from `models/current.onnx`). Falls back to
+    /// Heuristic if the model is missing or its radius doesn't match the board.
+    Neural,
 }
 
 impl AiStrategy {
@@ -60,6 +63,7 @@ impl AiStrategy {
         match self {
             Self::Heuristic => " [AI:H]",
             Self::AlphaBeta => " [AI:AB]",
+            Self::Neural => " [AI:NN]",
         }
     }
 }
@@ -126,5 +130,15 @@ impl GameConfig {
             .get(player_index)
             .copied()
             .unwrap_or(AiStrategy::Heuristic)
+    }
+
+    /// Render color for a player's pawn. Colors are a presentation concern owned by
+    /// `GameConfig`; the Bevy-free `giereczka_core::player::PlayerDef` no longer carries one.
+    pub fn pawn_color(&self, player_index: usize) -> Color {
+        self.player_colors
+            .get(player_index)
+            .copied()
+            .unwrap_or(PlayerColor::Red)
+            .color()
     }
 }

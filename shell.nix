@@ -1,6 +1,14 @@
 { pkgs ? import <nixpkgs> {} }:
   let
     overrides = (builtins.fromTOML (builtins.readFile ./rust-toolchain.toml));
+    # Python environment for the AlphaZero training pipeline (pipeline/*.py).
+    pythonEnv = pkgs.python3.withPackages (ps: with ps; [
+      numpy
+      safetensors
+      torch
+      onnx
+      onnxruntime
+    ]);
     libPath = with pkgs; lib.makeLibraryPath [
       pkgs.alsa-lib.dev
       pkgs.systemd.dev
@@ -9,6 +17,7 @@
       pkgs.libffi
       pkgs.expat.dev
       pkgs.vulkan-loader
+      pkgs.onnxruntime  # libonnxruntime.so for the Rust `ort` crate (load-dynamic)
       # load external libraries that you need in your rust project here
     ];
     lib = pkgs.lib;
@@ -21,12 +30,17 @@ in
       pkg-config
       rustup
       ripgrep
+      just
       pkgs.alsa-lib.dev
       pkgs.systemd.dev
       pkgs.wayland.dev
       pkgs.vulkan-loader
+      pythonEnv
+      pkgs.onnxruntime
     ];
     RUSTC_VERSION = overrides.toolchain.channel;
+    # The Rust `ort` crate (load-dynamic) finds ONNX Runtime here for self-play / in-game inference.
+    ORT_DYLIB_PATH = "${pkgs.onnxruntime}/lib/libonnxruntime.so";
     # https://github.com/rust-lang/rust-bindgen#environment-variables
     LIBCLANG_PATH = pkgs.lib.makeLibraryPath [ pkgs.llvmPackages_latest.libclang.lib ];
     shellHook = ''

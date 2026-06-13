@@ -5,9 +5,7 @@ mod components;
 mod fence;
 mod highlight;
 mod input;
-mod player;
-#[cfg(test)]
-mod rules_tests;
+mod neural;
 mod selection;
 mod spawn;
 pub mod state;
@@ -17,11 +15,11 @@ mod utils;
 use crate::app_state::{AppPhase, GameConfig, StartRematch};
 use bevy::prelude::*;
 
-use ai::{AiRng, AiTurnCooldown};
+use ai::{AiTurnCooldown, GameRng};
 use components::{InGameHudUi, MoveHighlight, Pawn, PlayerPanelUiState};
 use fence::FencePlacementState;
 use selection::PawnSelection;
-use state::TurnState;
+use state::{GameState, TurnState};
 
 pub(crate) use utils::despawn_all;
 
@@ -30,13 +28,14 @@ pub use components::HoveredGoalPreview;
 
 impl Plugin for GamePlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(TurnState::default())
+        app.insert_resource(GameState::default())
             .insert_resource(PawnSelection::default())
             .insert_resource(FencePlacementState::default())
             .insert_resource(HoveredGoalPreview::default())
             .insert_resource(PlayerPanelUiState::default())
-            .insert_resource(AiRng::default())
+            .insert_resource(GameRng::default())
             .insert_resource(AiTurnCooldown::default())
+            .insert_resource(neural::NeuralAi::default())
             .init_resource::<audio::GameAudioAssets>()
             .add_event::<actions::GameActionRequest>()
             .add_event::<actions::GameActionApplied>()
@@ -48,6 +47,7 @@ impl Plugin for GamePlugin {
                     state::reset_turn_state_from_config,
                     selection::reset_selection,
                     fence::reset_fence_placement,
+                    neural::setup_neural_ai,
                     spawn::spawn_pawns,
                     ui::setup_turn_indicator,
                 )
@@ -118,7 +118,7 @@ fn handle_start_rematch(
     mut rematch_events: EventReader<StartRematch>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
-    mut turn_state: ResMut<TurnState>,
+    mut turn_state: ResMut<GameState>,
     mut selection: ResMut<PawnSelection>,
     mut fence_placement: ResMut<FencePlacementState>,
     mut ai_cooldown: ResMut<AiTurnCooldown>,
@@ -143,13 +143,15 @@ fn handle_start_rematch(
         move_highlights,
     );
 
-    *turn_state = TurnState::with_player_colors(
-        game_config.player_count,
-        game_config.board_radius,
-        &game_config.player_colors,
-    );
+    turn_state.0 = TurnState::new(game_config.player_count, game_config.board_radius);
     selection.current_selected = false;
     *fence_placement = FencePlacementState::default();
     *ai_cooldown = AiTurnCooldown::default();
-    spawn::spawn_pawn_entities(&mut commands, &mut meshes, &mut materials, &turn_state);
+    spawn::spawn_pawn_entities(
+        &mut commands,
+        &mut meshes,
+        &mut materials,
+        &turn_state.0,
+        &game_config,
+    );
 }

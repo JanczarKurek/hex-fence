@@ -1,0 +1,13 @@
+[package]
+name = "giereczka-core"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+ort = { version = "=2.0.0-rc.10", default-features = false, features = ["load-dynamic"], optional = true }
+
+[features]
+# Enables the ONNX Runtime-backed neural evaluator (`onnx` module). Off by default so the
+# rules engine and `cargo test` stay free of native ONNX Runtime dependencies.
+ort = ["dep:ort"]

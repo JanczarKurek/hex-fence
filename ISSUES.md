@@ -8,6 +8,19 @@
 - Make as much stuff loadable from files instead of compiled:
     - Configuration of the number of fences / other values in the game rules
 
+## Self-play training pipeline (AlphaZero)
+- The pure rules engine lives in `crates/core` (`giereczka-core`, Bevy-free). The game, the
+  `selfplay`/`eval` binaries, and Python training all share it.
+- `pipeline/run.py` drives the generation loop: self-play (`selfplay --model`, MCTS+ONNX) ->
+  train (`train.py`) -> export (`export_onnx.py`) -> parity gate -> eval (`eval`) -> promote.
+  Needs `ORT_DYLIB_PATH` (set by `shell.nix`). See `justfile` for one-shot commands.
+- Currently 2-player, radius 3 (then 4). The encoding contract (planes + action index map) is in
+  `crates/core/src/encoding.rs`, mirrored in `pipeline/contract.py` and gated by `test_contract.py`.
+- TODO: train a strong model (the smoke runs only prove the machinery); larger games/sims/gens.
+- TODO: in-game `Neural` AI uses single-pass policy argmax; could add an MCTS "strong" mode.
+- TODO: parallel leaf-batched inference; v2 bitset board rep for faster `can_place_fence`.
+- TODO: extend self-play/encoding to 3/6 players (currently 2-player zero-sum only).
+
 ## Graphics
 - Fences have empty spots on the joints
 

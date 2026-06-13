@@ -2,7 +2,7 @@ use bevy::prelude::*;
 use bevy::ui::RelativeCursorPosition;
 
 use crate::app_state::{AppPhase, RematchRequested};
-use crate::game::state::TurnState;
+use crate::game::state::GameState;
 use crate::settings::AppSettings;
 
 use crate::game::despawn_all;
@@ -316,7 +316,7 @@ pub(super) fn handle_rematch_button(
 }
 
 pub(super) fn sync_rematch_visibility(
-    turn_state: Res<TurnState>,
+    turn_state: Res<GameState>,
     mut panels: Query<&mut Node, With<RematchPanel>>,
 ) {
     if !turn_state.is_changed() {

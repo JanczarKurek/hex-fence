@@ -3,11 +3,11 @@ use bevy::prelude::*;
 use bevy::render::mesh::Mesh2d;
 use bevy::sprite::MeshMaterial2d;
 
-use crate::hex_grid::TILE_RADIUS;
+use crate::hex_grid::{HexRender, TILE_RADIUS};
 
 use super::components::MoveHighlight;
 use super::selection::PawnSelection;
-use super::state::TurnState;
+use super::state::GameState;
 
 use super::utils::despawn_all;
 
@@ -15,7 +15,7 @@ pub fn update_move_highlights(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
-    turn_state: Res<TurnState>,
+    turn_state: Res<GameState>,
     selection: Res<PawnSelection>,
     existing: Query<Entity, With<MoveHighlight>>,
 ) {

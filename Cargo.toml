@@ -1,9 +1,14 @@
+[workspace]
+members = ["crates/core", "crates/selfplay", "crates/eval"]
+resolver = "2"
+
 [package]
 name = "giereczka"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+giereczka-core = { path = "crates/core", features = ["ort"] }
 bevy = { version = "0.16.1", features = ["dynamic_linking", "wayland"] }
 serde = { version = "1.0", features = ["derive"] }
 toml = "0.8"

@@ -3,7 +3,7 @@ use bevy::window::PrimaryWindow;
 
 use crate::app_state::GameConfig;
 use crate::camera::MainCamera;
-use crate::hex_grid::AxialCoord;
+use crate::hex_grid::{AxialCoord, HexRender};
 use crate::network::{NetConfig, NetRuntime};
 use crate::settings::AppSettings;
 
@@ -11,14 +11,14 @@ use super::actions::{ActionSource, GameActionRequest};
 use super::audio::GameSoundEvent;
 use super::fence::{self, FencePlacementState};
 use super::selection::PawnSelection;
-use super::state::{GameAction, TurnState};
+use super::state::{GameAction, GameState};
 
 pub fn move_current_pawn_on_click(
     keys: Res<ButtonInput<KeyCode>>,
     mouse_buttons: Res<ButtonInput<MouseButton>>,
     windows: Query<&Window, With<PrimaryWindow>>,
     camera_query: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
-    turn_state: Res<TurnState>,
+    turn_state: Res<GameState>,
     game_config: Res<GameConfig>,
     app_settings: Res<AppSettings>,
     net_config: Res<NetConfig>,

@@ -4,8 +4,8 @@ use bevy::render::mesh::Mesh2d;
 use bevy::sprite::MeshMaterial2d;
 
 use crate::app_state::{AppPhase, GameConfig};
-use crate::game::{HoveredGoalPreview, state::TurnState};
-use crate::hex_grid::{AxialCoord, TILE_RADIUS};
+use crate::game::{HoveredGoalPreview, state::GameState};
+use crate::hex_grid::{AxialCoord, HexRender, TILE_RADIUS};
 
 use crate::game::despawn_all;
 
@@ -64,7 +64,8 @@ fn cleanup_board(mut commands: Commands, board_tiles: Query<Entity, With<BoardTi
 
 fn update_goal_preview(
     hovered_preview: Res<HoveredGoalPreview>,
-    turn_state: Res<TurnState>,
+    turn_state: Res<GameState>,
+    game_config: Res<GameConfig>,
     mut materials: ResMut<Assets<ColorMaterial>>,
     board_tiles: Query<(&BoardTile, &MeshMaterial2d<ColorMaterial>)>,
 ) {
@@ -86,7 +87,7 @@ fn update_goal_preview(
     };
 
     let goal_side = player.goal_side;
-    let player_srgba = player.pawn_color.to_srgba();
+    let player_srgba = game_config.pawn_color(player_index).to_srgba();
 
     for (tile, material_handle) in &board_tiles {
         let shade_index = tile.coord.shade_index();

@@ -1,9 +1,8 @@
 use std::collections::HashSet;
 
-use crate::hex_grid::AxialCoord;
-
-use super::fence::{FenceShape, fence_edges};
-use super::state::{ActionError, EdgeKey, TurnState};
+use crate::fence_rules::{FenceShape, fence_edges};
+use crate::hex::AxialCoord;
+use crate::state::{ActionError, EdgeKey, TurnState};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum TestAction {

@@ -57,6 +57,9 @@ pub(super) struct StartMenuRoot;
 pub(super) struct MenuMainPanel;
 
 #[derive(Component)]
+pub(super) struct MenuMainPanelScrollArea;
+
+#[derive(Component)]
 pub(super) struct StartGameButton;
 
 #[derive(Component)]
@@ -114,6 +117,7 @@ pub(super) enum PlayerDetailOption {
     Client,
     Heuristic,
     AlphaBeta,
+    Neural,
 }
 
 #[derive(Component)]
