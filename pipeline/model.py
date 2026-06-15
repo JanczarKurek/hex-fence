@@ -1,9 +1,15 @@
 """AlphaZero policy+value network for the hex Quoridor variant.
 
-Small ResNet over the 12-plane canonical board. Two heads:
+A ResNet over the canonical board planes. Two heads:
   * policy: raw logits over the full action space (masking happens at inference / loss time,
     NOT in the graph — keeps the ONNX export static, see export_onnx.py).
   * value: tanh in [-1, 1], the side-to-move's expected outcome.
+
+The head reduction widths (policy_head_channels / value_head_channels / value_hidden) are
+configurable and round-trip through config(): the original "smoke test" net squeezed the tower to
+2 policy channels / 1 value channel before the only learnable projection, which couldn't even clone
+the heuristic. Wider heads + a deeper value head fix that. Checkpoints carry their own geometry, so
+load_checkpoint reconstructs exactly what was saved.
 """
 
 import torch
@@ -28,26 +34,38 @@ class ResidualBlock(nn.Module):
 
 
 class HexNet(nn.Module):
-    def __init__(self, radius: int, channels: int = 64, blocks: int = 5):
+    def __init__(
+        self,
+        radius: int,
+        channels: int = 64,
+        blocks: int = 5,
+        policy_head_channels: int = 16,
+        value_head_channels: int = 16,
+        value_hidden: int = 128,
+    ):
         super().__init__()
         self.radius = radius
         self.dim = C.dim(radius)
         self.policy_len = C.policy_len(radius)
         self.channels = channels
         self.blocks = blocks
+        self.policy_head_channels = policy_head_channels
+        self.value_head_channels = value_head_channels
+        self.value_hidden = value_hidden
 
         self.stem_conv = nn.Conv2d(C.PLANES, channels, 3, padding=1, bias=False)
         self.stem_bn = nn.BatchNorm2d(channels)
         self.tower = nn.Sequential(*[ResidualBlock(channels) for _ in range(blocks)])
 
-        self.policy_conv = nn.Conv2d(channels, 2, 1, bias=False)
-        self.policy_bn = nn.BatchNorm2d(2)
-        self.policy_fc = nn.Linear(2 * self.dim * self.dim, self.policy_len)
+        self.policy_conv = nn.Conv2d(channels, policy_head_channels, 1, bias=False)
+        self.policy_bn = nn.BatchNorm2d(policy_head_channels)
+        self.policy_fc = nn.Linear(policy_head_channels * self.dim * self.dim, self.policy_len)
 
-        self.value_conv = nn.Conv2d(channels, 1, 1, bias=False)
-        self.value_bn = nn.BatchNorm2d(1)
-        self.value_fc1 = nn.Linear(self.dim * self.dim, 64)
-        self.value_fc2 = nn.Linear(64, 1)
+        self.value_conv = nn.Conv2d(channels, value_head_channels, 1, bias=False)
+        self.value_bn = nn.BatchNorm2d(value_head_channels)
+        self.value_fc1 = nn.Linear(value_head_channels * self.dim * self.dim, value_hidden)
+        self.value_fc2 = nn.Linear(value_hidden, value_hidden // 2)
+        self.value_fc3 = nn.Linear(value_hidden // 2, 1)
 
     def forward(self, planes):
         x = F.relu(self.stem_bn(self.stem_conv(planes)))
@@ -58,7 +76,8 @@ class HexNet(nn.Module):
 
         v = F.relu(self.value_bn(self.value_conv(x)))
         v = F.relu(self.value_fc1(v.flatten(1)))
-        value = torch.tanh(self.value_fc2(v)).squeeze(-1)
+        v = F.relu(self.value_fc2(v))
+        value = torch.tanh(self.value_fc3(v)).squeeze(-1)
 
         return policy_logits, value
 
@@ -67,6 +86,9 @@ class HexNet(nn.Module):
             "radius": self.radius,
             "channels": self.channels,
             "blocks": self.blocks,
+            "policy_head_channels": self.policy_head_channels,
+            "value_head_channels": self.value_head_channels,
+            "value_hidden": self.value_hidden,
             "dim": self.dim,
             "policy_len": self.policy_len,
             "planes": C.PLANES,
@@ -80,6 +102,15 @@ def save_checkpoint(model: HexNet, path: str) -> None:
 def load_checkpoint(path: str, map_location="cpu") -> HexNet:
     ckpt = torch.load(path, map_location=map_location, weights_only=False)
     cfg = ckpt["config"]
-    model = HexNet(cfg["radius"], channels=cfg["channels"], blocks=cfg["blocks"])
+    # Head widths default to the original geometry so pre-existing config dicts still describe a
+    # constructible net; checkpoints written after this change carry their own widths.
+    model = HexNet(
+        cfg["radius"],
+        channels=cfg["channels"],
+        blocks=cfg["blocks"],
+        policy_head_channels=cfg.get("policy_head_channels", 16),
+        value_head_channels=cfg.get("value_head_channels", 16),
+        value_hidden=cfg.get("value_hidden", 128),
+    )
     model.load_state_dict(ckpt["state_dict"])
     return model

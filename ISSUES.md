@@ -16,8 +16,18 @@
   Needs `ORT_DYLIB_PATH` (set by `shell.nix`). See `justfile` for one-shot commands.
 - Currently 2-player, radius 3 (then 4). The encoding contract (planes + action index map) is in
   `crates/core/src/encoding.rs`, mirrored in `pipeline/contract.py` and gated by `test_contract.py`.
-- TODO: train a strong model (the smoke runs only prove the machinery); larger games/sims/gens.
-- TODO: in-game `Neural` AI uses single-pass policy argmax; could add an MCTS "strong" mode.
+- DONE (2026-06-15): trained a net that **beats the heuristic 0.72 @ 128 MCTS sims** (500 games),
+  up from 0.05-0.25. Keys: (1) wider policy head in `model.py` (old 2-channel squeeze couldn't clone
+  the heuristic), (2) behaviour-clone warm-start to parity, (3) **the decisive fix — a distance-diff
+  value target** (`selfplay --value-blend 0.5`): the pure game-outcome value was a near-coin-flip so
+  MCTS got *worse* with more search; blending in `tanh((opp_path-self_path)/radius)` makes the value
+  learnable (loss 0.43->0.12) and search now *helps*. Champion: `run7/models/current.onnx` (gen1).
+  Needs >=128 sims; alpha-beta depth-3 (0.82 vs heuristic) is still stronger. Training ran on the
+  ROCm GPU. See memory `az-pipeline-heuristic-gap.md` and `runs/headroom.md`.
+- DONE (2026-06-15): in-game `Neural` AI now runs network-guided MCTS (`src/game/neural.rs`, same
+  `run_mcts` as eval) instead of single-pass argmax — this is what deploys the 0.72 champion in-game.
+  Sim count via `GIERECZKA_MCTS_SIMS` (default 64). Champion installed at `models/current.onnx`.
+  Future: run the search off the main thread to avoid a brief turn hitch at high sim counts.
 - TODO: parallel leaf-batched inference; v2 bitset board rep for faster `can_place_fence`.
 - TODO: extend self-play/encoding to 3/6 players (currently 2-player zero-sum only).
 

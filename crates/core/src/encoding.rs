@@ -16,7 +16,13 @@ use crate::player::fences_per_player;
 use crate::state::{EdgeKey, GameAction, TurnState, has_path_to_goal};
 
 /// Number of feature planes per position.
-pub const PLANES: usize = 12;
+///
+/// Planes 0..=11 are the board occupancy / blocked-edge / fence-count / progress features;
+/// planes 12 and 13 are the normalized BFS distance-to-goal fields for the side-to-move and
+/// the opponent, computed over the *current* blocked edges (so fences reshape them). The
+/// distance fields hand the network the racing landscape directly — the exact signal the
+/// hand-written heuristic relies on and that cold-start self-play struggled to discover.
+pub const PLANES: usize = 14;
 
 /// Per-cell policy slots: 1 move-target + 4 shapes * 6 orientations of fences.
 const FENCE_SLOTS_PER_CELL: usize = FenceShape::ALL.len() * 6; // 24
@@ -241,6 +247,20 @@ impl Encoder {
             put(11, cell, progress);
         }
 
+        // 12: distance-to-own-goal field, 13: distance-to-opponent-goal field (normalized).
+        // Multi-source BFS from each goal side over the current blocked edges, so a freshly
+        // placed fence immediately shows up as a longer path for whoever it hinders.
+        let self_goal = state.players[cur].goal_side;
+        let opp_goal = state.players[opp].goal_side;
+        let self_field = distance_field(self_goal, radius, &state.blocked_edges);
+        let opp_field = distance_field(opp_goal, radius, &state.blocked_edges);
+        let norm = (2 * radius).max(1) as f32; // longest possible board-graph distance
+        let normalize = |d: Option<&u32>| d.map_or(1.0, |&d| (d as f32 / norm).min(1.0));
+        for &cell in &self.cells {
+            put(12, cell, normalize(self_field.get(&cell)));
+            put(13, cell, normalize(opp_field.get(&cell)));
+        }
+
         (planes, k)
     }
 
@@ -376,6 +396,45 @@ fn fence_geometry_static_valid(edges: &[EdgeKey; 3], radius: i32) -> bool {
         }
     }
     true
+}
+
+/// BFS distance from every reachable cell to `goal_side`, over the current `blocked` edges.
+///
+/// Multi-source from all goal-side cells outward; since the move graph is undirected, the
+/// distance found equals each cell's shortest unblocked path length to that side. Cells with
+/// no entry are walled off from the side (left to the caller to treat as max distance).
+fn distance_field(
+    goal_side: usize,
+    radius: i32,
+    blocked: &HashSet<EdgeKey>,
+) -> HashMap<AxialCoord, u32> {
+    let mut dist: HashMap<AxialCoord, u32> = HashMap::new();
+    let mut queue: VecDeque<AxialCoord> = VecDeque::new();
+    for cell in board_cells(radius) {
+        if cell.is_on_side(goal_side, radius) {
+            dist.insert(cell, 0);
+            queue.push_back(cell);
+        }
+    }
+
+    while let Some(current) = queue.pop_front() {
+        let d = dist[&current];
+        for neighbor in current.neighbors() {
+            if !neighbor.is_inside_board(radius) {
+                continue;
+            }
+            if blocked.contains(&EdgeKey::from_cells(current, neighbor)) {
+                continue;
+            }
+            if dist.contains_key(&neighbor) {
+                continue;
+            }
+            dist.insert(neighbor, d + 1);
+            queue.push_back(neighbor);
+        }
+    }
+
+    dist
 }
 
 /// Edges along one shortest path from `start` to `goal_side` (empty if already on the side).

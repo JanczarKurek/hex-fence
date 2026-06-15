@@ -4,9 +4,14 @@
 //! first-move advantage. MCTS runs with temperature 0 and no Dirichlet noise (deterministic-ish
 //! strong play). Used by the orchestration loop to gate promotion.
 //!
+//! Both `--a` and `--b` accept an ONNX path, `heuristic`, or `alphabeta`. `--depth` sets the
+//! alpha-beta search depth (default 3) for whichever side uses it — handy for headroom probes
+//! like `eval --a alphabeta --depth 5 --b heuristic`.
+//!
 //! Usage:
 //!   eval --radius 3 --a models/gen1.onnx --b models/gen0.onnx --games 40 --sims 64 --threads 8
 //!   eval --radius 3 --a models/gen1.onnx --b heuristic --games 40
+//!   eval --radius 3 --a alphabeta --depth 5 --b heuristic --games 200
 //!
 //! Prints a JSON summary on the last line.
 
@@ -27,14 +32,31 @@ enum Opponent {
     AlphaBeta,
 }
 
+fn parse_opponent(value: &str) -> Opponent {
+    match value {
+        "heuristic" => Opponent::Heuristic,
+        "alphabeta" => Opponent::AlphaBeta,
+        path => Opponent::Model(path.to_string()),
+    }
+}
+
+fn opponent_label(opponent: &Opponent) -> String {
+    match opponent {
+        Opponent::Model(path) => path.clone(),
+        Opponent::Heuristic => "heuristic".to_string(),
+        Opponent::AlphaBeta => "alphabeta".to_string(),
+    }
+}
+
 struct Args {
     radius: i32,
-    a: String,
+    a: Opponent,
     b: Opponent,
     games: usize,
     sims: usize,
     threads: usize,
     seed: u64,
+    depth: usize,
 }
 
 fn parse_args() -> Args {
@@ -45,43 +67,40 @@ fn parse_args() -> Args {
     let mut sims = 64;
     let mut threads = 1;
     let mut seed = 1;
+    let mut depth = 3;
 
     let mut args = std::env::args().skip(1);
     while let Some(flag) = args.next() {
         let mut value = || args.next().expect("missing value for flag");
         match flag.as_str() {
             "--radius" => radius = value().parse().expect("radius"),
-            "--a" => a = Some(value()),
-            "--b" => {
-                b = Some(match value().as_str() {
-                    "heuristic" => Opponent::Heuristic,
-                    "alphabeta" => Opponent::AlphaBeta,
-                    path => Opponent::Model(path.to_string()),
-                })
-            }
+            "--a" => a = Some(parse_opponent(&value())),
+            "--b" => b = Some(parse_opponent(&value())),
             "--games" => games = value().parse().expect("games"),
             "--sims" => sims = value().parse().expect("sims"),
             "--threads" => threads = value().parse::<usize>().expect("threads").max(1),
             "--seed" => seed = value().parse().expect("seed"),
+            "--depth" => depth = value().parse::<usize>().expect("depth").max(1),
             other => panic!("unknown flag: {other}"),
         }
     }
 
     Args {
         radius,
-        a: a.expect("--a <onnx> required"),
+        a: a.expect("--a <onnx|heuristic|alphabeta> required"),
         b: b.expect("--b <onnx|heuristic|alphabeta> required"),
         games,
         sims,
         threads,
         seed,
+        depth,
     }
 }
 
 enum Agent {
     Model(OnnxEvaluator),
     Heuristic,
-    AlphaBeta,
+    AlphaBeta(usize),
 }
 
 impl Agent {
@@ -94,7 +113,7 @@ impl Agent {
     ) -> Option<GameAction> {
         match self {
             Agent::Heuristic => choose_heuristic_action(state, rng),
-            Agent::AlphaBeta => choose_alpha_beta_action(state, rng, 3)
+            Agent::AlphaBeta(depth) => choose_alpha_beta_action(state, rng, *depth)
                 .or_else(|| choose_heuristic_action(state, rng)),
             Agent::Model(eval) => {
                 let config = MctsConfig {
@@ -132,15 +151,13 @@ fn play_game(
     state.winner
 }
 
-fn build_agent(opponent: &Opponent, model_a: &str, which: char, dim: usize) -> Agent {
-    match (which, opponent) {
-        ('a', _) => Agent::Model(OnnxEvaluator::from_file(model_a, dim).expect("load model A")),
-        ('b', Opponent::Model(path)) => {
-            Agent::Model(OnnxEvaluator::from_file(path, dim).expect("load model B"))
+fn build_agent(opponent: &Opponent, dim: usize, depth: usize) -> Agent {
+    match opponent {
+        Opponent::Model(path) => {
+            Agent::Model(OnnxEvaluator::from_file(path, dim).expect("load model"))
         }
-        ('b', Opponent::Heuristic) => Agent::Heuristic,
-        ('b', Opponent::AlphaBeta) => Agent::AlphaBeta,
-        _ => unreachable!(),
+        Opponent::Heuristic => Agent::Heuristic,
+        Opponent::AlphaBeta => Agent::AlphaBeta(depth),
     }
 }
 
@@ -159,8 +176,8 @@ fn main() {
                 let encoder = &encoder;
                 let args = &args;
                 scope.spawn(move || {
-                    let agent_a = build_agent(&args.b, &args.a, 'a', dim);
-                    let agent_b = build_agent(&args.b, &args.a, 'b', dim);
+                    let agent_a = build_agent(&args.a, dim, args.depth);
+                    let agent_b = build_agent(&args.b, dim, args.depth);
 
                     let mut a_wins = 0;
                     let mut b_wins = 0;
@@ -203,14 +220,9 @@ fn main() {
     let games = a_wins + b_wins + draws;
     let score = (a_wins as f64 + 0.5 * draws as f64) / games as f64;
 
-    let opponent = match &args.b {
-        Opponent::Model(p) => p.clone(),
-        Opponent::Heuristic => "heuristic".to_string(),
-        Opponent::AlphaBeta => "alphabeta".to_string(),
-    };
     let summary = serde_json::json!({
-        "a": args.a,
-        "b": opponent,
+        "a": opponent_label(&args.a),
+        "b": opponent_label(&args.b),
         "games": games,
         "a_wins": a_wins,
         "b_wins": b_wins,

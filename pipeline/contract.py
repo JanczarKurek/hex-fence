@@ -12,7 +12,7 @@ The pieces that must agree across languages:
 # Fence shape order — load-bearing (matches FenceShape::ALL discriminant order in Rust).
 FENCE_SHAPES = ["S", "SMirrored", "C", "Y"]
 FENCE_SLOTS_PER_CELL = len(FENCE_SHAPES) * 6  # 24
-PLANES = 12
+PLANES = 14  # 12 board/edge/count planes + 2 BFS distance-to-goal fields (self, opponent)
 
 
 def cell_count(radius: int) -> int:

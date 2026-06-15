@@ -38,6 +38,10 @@ def main():
     ap.add_argument("--batch", type=int, default=256)
     ap.add_argument("--lr", type=float, default=1e-3)
     ap.add_argument("--weight-decay", type=float, default=1e-4)
+    ap.add_argument("--value-weight", type=float, default=1.0,
+                    help="weight on the value MSE term: loss = policy_ce + value_weight*value_mse. "
+                         "Lower it during behaviour-cloning (heuristic-vs-heuristic outcomes are near "
+                         "noise); keep ~1.0 for self-play where the value signal is informative.")
     ap.add_argument("--channels", type=int, default=64)
     ap.add_argument("--blocks", type=int, default=5)
     ap.add_argument("--window", type=int, default=None)
@@ -83,7 +87,7 @@ def main():
             logits, pred_value = model(bp)
             loss_p = masked_policy_loss(logits, btarget, bmask)
             loss_v = F.mse_loss(pred_value, bvalue)
-            loss = loss_p + loss_v
+            loss = loss_p + args.value_weight * loss_v
 
             opt.zero_grad()
             loss.backward()

@@ -84,9 +84,11 @@ pub fn random_ai_take_turn(
         AiStrategy::Heuristic => choose_heuristic_action(&turn_state.0, &mut ai_rng.0),
         AiStrategy::AlphaBeta => choose_alpha_beta_action(&turn_state.0, &mut ai_rng.0, 3)
             .or_else(|| choose_heuristic_action(&turn_state.0, &mut ai_rng.0)),
-        AiStrategy::Neural => neural_ai
-            .choose_action(&turn_state.0)
-            .or_else(|| choose_heuristic_action(&turn_state.0, &mut ai_rng.0)),
+        AiStrategy::Neural => {
+            // Network-guided MCTS (strong); falls back to the heuristic if no model is loaded.
+            let mcts_action = neural_ai.choose_action(&turn_state.0, &mut ai_rng.0);
+            mcts_action.or_else(|| choose_heuristic_action(&turn_state.0, &mut ai_rng.0))
+        }
     };
 
     let Some(action) = action else {

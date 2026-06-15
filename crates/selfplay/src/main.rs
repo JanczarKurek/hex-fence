@@ -15,7 +15,7 @@ use std::collections::HashSet;
 use std::path::Path;
 
 use giereczka_core::encoding::{Encoder, PLANES};
-use giereczka_core::heuristic::{AiRng, choose_heuristic_action};
+use giereczka_core::heuristic::{AiRng, choose_heuristic_action, shortest_path_len};
 use giereczka_core::mcts::{MctsConfig, run_mcts};
 use giereczka_core::onnx::OnnxEvaluator;
 use giereczka_core::progress::Progress;
@@ -45,6 +45,9 @@ struct Args {
     temp_moves: usize,
     threads: usize,
     generation: i64,
+    value_shaping: bool,
+    value_shaping_strength: f32,
+    value_blend: f32,
 }
 
 fn parse_args() -> Args {
@@ -58,6 +61,9 @@ fn parse_args() -> Args {
     let mut temp_moves = 12;
     let mut threads = 1;
     let mut generation = -1;
+    let mut value_shaping = false;
+    let mut value_shaping_strength = 0.2f32;
+    let mut value_blend = 1.0f32;
 
     let mut args = std::env::args().skip(1);
     while let Some(flag) = args.next() {
@@ -80,6 +86,11 @@ fn parse_args() -> Args {
             "--temp-moves" => temp_moves = value().parse().expect("temp-moves"),
             "--threads" => threads = value().parse::<usize>().expect("threads").max(1),
             "--gen" => generation = value().parse().expect("gen"),
+            "--value-shaping" => value_shaping = true,
+            "--value-shaping-strength" => {
+                value_shaping_strength = value().parse().expect("value-shaping-strength")
+            }
+            "--value-blend" => value_blend = value().parse().expect("value-blend"),
             other => panic!("unknown flag: {other}"),
         }
     }
@@ -99,6 +110,9 @@ fn parse_args() -> Args {
         temp_moves,
         threads,
         generation,
+        value_shaping,
+        value_shaping_strength,
+        value_blend,
     }
 }
 
@@ -109,6 +123,33 @@ struct Sample {
     legal_mask: Vec<u8>,
     player: usize,
     value: f32,
+    /// Normalised distance-difference (nearest-opponent path − own path) in [-1, 1] from this
+    /// position's player perspective. Positive = this player is ahead in the race. A dense,
+    /// learnable value signal (the same one alpha-beta uses) — blended into the value target so the
+    /// value head isn't forced to regress the near-coin-flip game outcome alone.
+    dist_diff: f32,
+}
+
+/// Distance-difference value for the side to move: tanh((nearest_opponent_path − self_path)/radius).
+fn dist_diff_value(state: &TurnState) -> f32 {
+    let current = state.current_player;
+    let path = |player: usize| {
+        shortest_path_len(
+            state.pawn_positions[player],
+            state.players[player].goal_side,
+            state.board_radius,
+            &state.blocked_edges,
+        )
+        .unwrap_or(9999) as i32
+    };
+    let self_path = path(current);
+    let best_opp = (0..state.players.len())
+        .filter(|&p| p != current)
+        .map(path)
+        .min()
+        .unwrap_or(9999);
+    let scale = state.board_radius.max(1) as f32;
+    (((best_opp - self_path) as f32) / scale).tanh()
 }
 
 fn actions_equal(a: &GameAction, b: &GameAction) -> bool {
@@ -132,13 +173,40 @@ fn legal_mask(encoder: &Encoder, state: &TurnState, k: usize, policy_len: usize)
 }
 
 /// Assign the value target to a game's samples from each recorded state's perspective.
-fn backfill_values(samples: &mut [Sample], start: usize, winner: Option<usize>) {
+///
+/// With `shaping = Some(strength)`, the win/loss magnitude is *speed-scaled*: a decisive (fast) win
+/// earns near full ±1, a slow grind earns down to ±(1-strength). The sign is always identical to the
+/// unshaped target, so shaping can never invert the optimization — it only rewards finishing faster.
+fn backfill_values(
+    samples: &mut [Sample],
+    start: usize,
+    winner: Option<usize>,
+    radius: i32,
+    shaping: Option<f32>,
+    blend: f32,
+) {
+    let mag = match (winner, shaping) {
+        (Some(_), Some(strength)) => {
+            let game_len = (samples.len() - start) as f32;
+            // ~2*radius moves per side to cross, alternating => ~4*radius plies for a clean race.
+            let min_len = (4 * radius) as f32;
+            let norm = (MAX_PLY as f32 - min_len).max(1.0);
+            let slow = ((game_len - min_len) / norm).clamp(0.0, 1.0);
+            (1.0 - strength * slow).clamp(1.0 - strength, 1.0)
+        }
+        _ => 1.0,
+    };
+    // blend = 1.0 -> pure game outcome (classic). blend < 1.0 mixes in each position's dense
+    // distance-difference so the value head learns a learnable signal instead of the near-coin-flip
+    // terminal outcome alone (the fix for "more MCTS search makes the net worse").
+    let blend = blend.clamp(0.0, 1.0);
     for sample in &mut samples[start..] {
-        sample.value = match winner {
-            Some(w) if w == sample.player => 1.0,
-            Some(_) => -1.0,
+        let outcome = match winner {
+            Some(w) if w == sample.player => mag,
+            Some(_) => -mag,
             None => 0.0,
         };
+        sample.value = blend * outcome + (1.0 - blend) * sample.dist_diff;
     }
 }
 
@@ -148,6 +216,8 @@ fn play_game_baseline(
     random: bool,
     rng: &mut AiRng,
     samples: &mut Vec<Sample>,
+    shaping: Option<f32>,
+    blend: f32,
 ) -> Option<usize> {
     let mut state = TurnState::new(PLAYER_COUNT, radius);
     let policy_len = encoder.policy_len();
@@ -187,6 +257,7 @@ fn play_game_baseline(
             legal_mask: mask,
             player: state.current_player,
             value: 0.0,
+            dist_diff: dist_diff_value(&state),
         });
 
         state
@@ -195,7 +266,7 @@ fn play_game_baseline(
         ply += 1;
     }
 
-    backfill_values(samples, start, state.winner);
+    backfill_values(samples, start, state.winner, radius, shaping, blend);
     state.winner
 }
 
@@ -207,6 +278,8 @@ fn play_game_neural(
     temp_moves: usize,
     rng: &mut AiRng,
     samples: &mut Vec<Sample>,
+    shaping: Option<f32>,
+    blend: f32,
 ) -> Option<usize> {
     let mut state = TurnState::new(PLAYER_COUNT, radius);
     let policy_len = encoder.policy_len();
@@ -233,6 +306,7 @@ fn play_game_neural(
             legal_mask: legal_mask(encoder, &state, k, policy_len),
             player,
             value: 0.0,
+            dist_diff: dist_diff_value(&state),
         });
 
         state
@@ -241,7 +315,7 @@ fn play_game_neural(
         ply += 1;
     }
 
-    backfill_values(samples, start, state.winner);
+    backfill_values(samples, start, state.winner, radius, shaping, blend);
     state.winner
 }
 
@@ -253,13 +327,11 @@ fn f32_to_bytes(values: &[f32]) -> Vec<u8> {
     bytes
 }
 
-/// Generate self-play samples, parallelised across threads for neural mode.
+/// Generate self-play samples, parallelised across threads. Each game is seeded independently
+/// (by thread + per-thread index), so heuristic/random data generation parallelises just like
+/// neural — the bootstrap and per-generation anchor games are no longer single-core.
 fn generate(args: &Args, encoder: &Encoder) -> (Vec<Sample>, [usize; PLAYER_COUNT], usize) {
-    let threads = if args.policy == Policy::Neural {
-        args.threads
-    } else {
-        1
-    };
+    let threads = args.threads.min(args.games.max(1));
 
     let progress = Progress::new("self-play", args.games);
     let progress = &progress;
@@ -283,6 +355,7 @@ fn generate(args: &Args, encoder: &Encoder) -> (Vec<Sample>, [usize; PLAYER_COUN
                     let mut samples = Vec::new();
                     let mut wins = [0usize; PLAYER_COUNT];
                     let mut draws = 0usize;
+                    let shaping = args.value_shaping.then_some(args.value_shaping_strength);
                     for g in 0..count {
                         let seed = args
                             .seed
@@ -299,6 +372,8 @@ fn generate(args: &Args, encoder: &Encoder) -> (Vec<Sample>, [usize; PLAYER_COUN
                                 args.temp_moves,
                                 &mut rng,
                                 &mut samples,
+                                shaping,
+                                args.value_blend,
                             ),
                             Policy::Heuristic => play_game_baseline(
                                 encoder,
@@ -306,6 +381,8 @@ fn generate(args: &Args, encoder: &Encoder) -> (Vec<Sample>, [usize; PLAYER_COUN
                                 false,
                                 &mut rng,
                                 &mut samples,
+                                shaping,
+                                args.value_blend,
                             ),
                             Policy::Random => play_game_baseline(
                                 encoder,
@@ -313,6 +390,8 @@ fn generate(args: &Args, encoder: &Encoder) -> (Vec<Sample>, [usize; PLAYER_COUN
                                 true,
                                 &mut rng,
                                 &mut samples,
+                                shaping,
+                                args.value_blend,
                             ),
                         };
                         match winner {
