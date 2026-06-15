@@ -1,0 +1,1 @@
+{"radius": 3, "channels": 64, "blocks": 6, "policy_head_channels": 16, "value_head_channels": 16, "value_hidden": 128, "dim": 7, "policy_len": 925, "planes": 14}
